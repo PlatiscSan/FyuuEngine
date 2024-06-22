@@ -8,13 +8,13 @@ extern "C" {
 #endif // defined(__cplusplus)
 
 	
-	FYUU_API void FyuuInit(int argc, char* argv[]);
+	FYUU_API void Fyuu_Init(int argc, char* argv[]);
 
-	FYUU_API void FyuuTick();
+	FYUU_API void Fyuu_Tick();
 
-	FYUU_API bool IsQuit();
+	FYUU_API bool Fyuu_IsQuit();
 
-	FYUU_API void FyuuQuit();
+	FYUU_API void Fyuu_Quit();
 
 
 

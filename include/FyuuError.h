@@ -3,6 +3,6 @@
 
 typedef enum {
 
-}FyuuError_t;
+}Fyuu_error_t;
 
 #endif // !FYUU_ERROR_H
