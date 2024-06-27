@@ -1,30 +1,28 @@
 
 #include "pch.h"
 
-#include <stdexcept>
-
-#include "WindowsWindow.h"
+#include "WindowsApplication.h"
+#include "WindowsWindowManager.h"
 #include "Utility.h"
-
 
 
 using namespace Fyuu;
 using namespace Fyuu::windows_util;
 
-Fyuu::WindowsWindow::WindowsWindow(std::string name)
-	:BaseWindow(name) {
+Fyuu::WindowsWindow::WindowsWindow(std::string name, HINSTANCE handle)
+	:IWindow(name), m_handle(handle) {
 
 	WNDCLASSEXA wcex{};
 
 	wcex.cbSize = sizeof(WNDCLASSEX);
-	wcex.hInstance = m_instance;
+	wcex.hInstance = m_handle;
 	wcex.lpfnWndProc = WindowProc;
 	
 	RegisterClassExA(&wcex);
 
-	m_hwnd = CreateWindowExA(0, name.c_str(), "", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, m_instance, this);
+	m_hwnd = CreateWindowExA(0, name.c_str(), "", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, m_handle, this);
 	if (!m_hwnd) {
-		UnregisterClassA(name.c_str(), m_instance);
+		UnregisterClassA(name.c_str(), m_handle);
 		throw std::runtime_error(GetLastErrorFromWinAPI());
 	}
 

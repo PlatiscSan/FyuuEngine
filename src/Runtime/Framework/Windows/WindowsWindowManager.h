@@ -1,18 +1,18 @@
 #ifndef WINDOWS_WINDOW_H
 #define WINDOWS_WINDOW_H
 
-#include "../Common/BaseWindow.h"
+#include "../Interface/IWindowManager.h"
 
 #include <Windows.h>
 #include <windowsx.h>
 
 namespace Fyuu {
 
-	class WindowsWindow final : public BaseWindow {
+	class WindowsWindow final : public IWindow {
 
 	public:
 
-		WindowsWindow(std::string name);
+		WindowsWindow(std::string name, HINSTANCE handle);
 
 		void SetTitle(std::string title) override;
 		void SetSize(std::uint32_t width, std::uint32_t height) override;
@@ -27,11 +27,12 @@ namespace Fyuu {
 
 	private:
 
-		HINSTANCE m_instance = GetModuleHandle(nullptr);
+		HINSTANCE m_handle = nullptr;
 		HWND m_hwnd = nullptr;
 
 
 	};
+
 
 }
 

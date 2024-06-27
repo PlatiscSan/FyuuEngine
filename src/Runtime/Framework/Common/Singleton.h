@@ -1,7 +1,8 @@
 #ifndef SINGLETON_H
 #define SINGLETON_H
 
-import std;
+#include <memory>
+#include <mutex>
 
 namespace Fyuu {
 

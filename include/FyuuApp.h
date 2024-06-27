@@ -2,17 +2,27 @@
 #define FYUU_APP_H
 
 #include "APIControl.h"
+#include "FyuuError.h"
+
+#if defined(__cplusplus)
+	#include <cstdbool>
+#else
+	#include <stdbool.h>
+#endif // defined(__cplusplus)
+
 
 #if defined(__cplusplus)
 extern "C" {
 #endif // defined(__cplusplus)
 
-	
-	FYUU_API void Fyuu_Init(int argc, char* argv[]);
+
+	FYUU_API Fyuu_error_t Fyuu_Init(int argc, char* argv[]);
 
 	FYUU_API void Fyuu_Tick();
 
 	FYUU_API bool Fyuu_IsQuit();
+
+	FYUU_API void Fyuu_RequestQuit();
 
 	FYUU_API void Fyuu_Quit();
 
