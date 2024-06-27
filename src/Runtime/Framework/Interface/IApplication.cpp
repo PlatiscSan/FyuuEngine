@@ -2,6 +2,7 @@
 #include "pch.h"
 
 #include "FyuuApp.h"
+#include "../Manager/MessageBus.h"
 
 #if defined(_WIN32)
 	#include "../Windows/WindowsApplication.h"
@@ -17,6 +18,7 @@ FYUU_API Fyuu_error_t Fyuu_Init(int argc, char* argv[]) {
 
 	try {
 		WindowsApplication::GetInstance(argc, argv);
+		MessageBus::GetInstance();
 	}
 	catch (std::exception const& ex) {
 		MessageBoxA(nullptr, ex.what(), "Init Failed", MB_OK | MB_ICONERROR);

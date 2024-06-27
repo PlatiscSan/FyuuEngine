@@ -19,18 +19,50 @@ namespace Fyuu {
 
 	public:
 
-		template <class T> void Subscribe(T e, std::function<void(T&)> callback) {
+		template <class T> void Subscribe(std::function<void(T&)> callback) {
 
 			std::unique_ptr<std::mutex> lock(m_mutex);
-			if (m_subscriptions.find(typeIndex) == m_subscriptions.end()) {
-				m_subscriptions[typeIndex] = std::list<std::function<void(void*)>>();
+			auto type_index = std::type_index(typeid(T));
+			if (m_subscriptions.find(type_index) == m_subscriptions.end()) {
+				m_subscriptions[type_index] = std::list<std::function<void(void*)>>();
 			}
-			m_subscriptions[typeIndex].emplace_back(
+			m_subscriptions[type_index].emplace_back(
 				[callback](void* arg) {
 					T* event = static_cast<T*>(arg);
 					callback(*event);
 				}
 			);
+
+		}
+
+		template <class T>
+		void Unsubscribe(std::function<void(T&)> callback) {
+
+			std::lock_guard<std::mutex> lock(m_mutex);
+			auto type_index = std::type_index(typeid(T));
+			if (m_subscriptions.find(type_index) != m_subscriptions.end()) {
+				auto& callbacks = m_subscriptions[type_index];
+				callbacks.remove_if([&callback](const std::function<void(void*)>& func) {
+					return func.target<void(*)(void*)>() == callback.target<void(*)(void*)>();
+					});
+				if (callbacks.empty()) {
+					m_subscriptions.erase(type_index);
+				}
+			}
+
+		}
+
+		template <class T>
+		void Publish(T message) {
+
+			std::lock_guard<std::mutex> lock(m_mutex);
+			auto type_index = std::type_index(typeid(T));
+			if (m_subscriptions.find(type_index) != m_subscriptions.end()) {
+				const auto& callbacks = m_subscriptions[type_index];
+				for (const auto& func : callbacks) {
+					func(&message); 
+				}
+			}
 
 		}
 
