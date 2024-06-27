@@ -19,9 +19,10 @@ namespace Fyuu {
 
 	public:
 
-		template <class T> void Subscribe(std::function<void(T&)> callback) {
+		template <class T>
+		void Subscribe(std::function<void(T&)> callback) {
 
-			std::unique_ptr<std::mutex> lock(m_mutex);
+			std::lock_guard<std::mutex> lock(m_mutex);
 			auto type_index = std::type_index(typeid(T));
 			if (m_subscriptions.find(type_index) == m_subscriptions.end()) {
 				m_subscriptions[type_index] = std::list<std::function<void(void*)>>();
@@ -41,13 +42,17 @@ namespace Fyuu {
 			std::lock_guard<std::mutex> lock(m_mutex);
 			auto type_index = std::type_index(typeid(T));
 			if (m_subscriptions.find(type_index) != m_subscriptions.end()) {
+
 				auto& callbacks = m_subscriptions[type_index];
-				callbacks.remove_if([&callback](const std::function<void(void*)>& func) {
+				callbacks.remove_if(
+					[&callback](const std::function<void(void*)>& func) {
 					return func.target<void(*)(void*)>() == callback.target<void(*)(void*)>();
-					});
+					}
+				);
 				if (callbacks.empty()) {
 					m_subscriptions.erase(type_index);
 				}
+
 			}
 
 		}

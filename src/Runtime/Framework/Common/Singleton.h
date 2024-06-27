@@ -43,7 +43,6 @@ namespace Fyuu {
 
 			std::lock_guard<std::mutex> lock(m_singleton_mutex);
 			m_instance.reset();
-
 		}
 
 	private:

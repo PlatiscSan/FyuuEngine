@@ -3,6 +3,7 @@
 
 #include <concepts>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -20,11 +21,16 @@ namespace Fyuu {
 		virtual void SetPosition(int x, int y) = 0;
 		virtual void Show() = 0;
 
+		std::string const& GetName() const noexcept {
+			return m_name;
+		}
+
 	protected:
 
 		std::string m_name{};
 		std::uint32_t m_width = 0, m_height = 0;
 		int m_x = 0, m_y = 0;
+		
 
 
 	};

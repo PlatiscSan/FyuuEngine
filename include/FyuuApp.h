@@ -1,8 +1,7 @@
 #ifndef FYUU_APP_H
 #define FYUU_APP_H
 
-#include "APIControl.h"
-#include "FyuuError.h"
+#include "FyuuEvent.h"
 
 #if defined(__cplusplus)
 	#include <cstdbool>

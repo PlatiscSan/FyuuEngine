@@ -1,10 +1,12 @@
-
+﻿
 #include "pch.h"
 
 #include "WindowsApplication.h"
 #include "WindowsWindowManager.h"
+#include "../Manager/MessageBus.h"
 #include "Utility.h"
 
+#include "FyuuEvent.h"
 
 using namespace Fyuu;
 using namespace Fyuu::windows_util;
@@ -12,17 +14,21 @@ using namespace Fyuu::windows_util;
 Fyuu::WindowsWindow::WindowsWindow(std::string name, HINSTANCE handle)
 	:IWindow(name), m_handle(handle) {
 
-	WNDCLASSEXA wcex{};
+	String _name = std::get<String>(ConvertString(m_name)).c_str();
+
+	WNDCLASSEX wcex{};
 
 	wcex.cbSize = sizeof(WNDCLASSEX);
 	wcex.hInstance = m_handle;
 	wcex.lpfnWndProc = WindowProc;
-	
-	RegisterClassExA(&wcex);
+	wcex.lpszClassName = _name.c_str();
 
-	m_hwnd = CreateWindowExA(0, name.c_str(), "", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, m_handle, this);
+	
+	RegisterClassEx(&wcex);
+
+	m_hwnd = CreateWindowEx(0, wcex.lpszClassName, TEXT(""), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, m_handle, this);
 	if (!m_hwnd) {
-		UnregisterClassA(name.c_str(), m_handle);
+		UnregisterClass(wcex.lpszClassName, m_handle);
 		throw std::runtime_error(GetLastErrorFromWinAPI());
 	}
 
@@ -36,8 +42,14 @@ Fyuu::WindowsWindow::WindowsWindow(std::string name, HINSTANCE handle)
 
 }
 
+Fyuu::WindowsWindow::~WindowsWindow() noexcept {
+
+	DestroyWindow(m_hwnd);
+	UnregisterClass(std::get<String>(ConvertString(m_name)).c_str(), m_handle);
+}
+
 void Fyuu::WindowsWindow::SetTitle(std::string title) {
-	if (!SetWindowTextA(m_hwnd, title.c_str())) {
+	if (!SetWindowText(m_hwnd, std::get<String>(ConvertString(title)).c_str())) {
 		throw std::runtime_error(GetLastErrorFromWinAPI());
 	}
 }
@@ -55,10 +67,9 @@ void Fyuu::WindowsWindow::SetPosition(int x, int y) {
 }
 
 void Fyuu::WindowsWindow::Show() {
-	if (!ShowWindow(m_hwnd, SW_SHOW)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
-	}
+	ShowWindow(m_hwnd, SW_SHOW);
 }
+
 
 LRESULT Fyuu::WindowsWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
 	
@@ -84,5 +95,91 @@ LRESULT Fyuu::WindowsWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 }
 
 LRESULT Fyuu::WindowsWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam) {
-	return LRESULT();
+	
+	static Fyuu_WindowEvent window_event{};
+
+	switch (msg) {
+
+	case WM_DESTROY:
+		window_event.window = this;
+		window_event.type = FYUU_WINDOW_EVENT_DESTROY;
+		MessageBus::GetInstance()->Publish(window_event);
+		return DefWindowProc(m_hwnd, msg, wparam, lparam);
+
+	case WM_SETFOCUS:
+		window_event.window = this;
+		window_event.type = FYUU_WINDOW_SET_FOCUS;
+		MessageBus::GetInstance()->Publish(window_event);
+		return DefWindowProc(m_hwnd, msg, wparam, lparam);
+
+	case WM_KILLFOCUS:
+		window_event.window = this;
+		window_event.type = FYUU_WINDOW_LOSE_FOCUS;
+		MessageBus::GetInstance()->Publish(window_event);
+		return DefWindowProc(m_hwnd, msg, wparam, lparam);
+
+	case WM_CLOSE:
+		window_event.window = this;
+		window_event.type = FYUU_WINDOW_EVENT_CLOSE;
+		MessageBus::GetInstance()->Publish(window_event);
+		return DefWindowProc(m_hwnd, msg, wparam, lparam);
+
+
+	default:
+		return DefWindowProc(m_hwnd, msg, wparam, lparam);
+	}
+
+}
+
+IWindow* Fyuu::WindowsWindowManager::Create(std::string name) {
+
+	std::shared_ptr<WindowsWindow> window;
+	try {
+		window = std::make_shared<WindowsWindow>(name, WindowsApplication::GetInstance(0, nullptr)->GetApplicationHandle());
+	}
+	catch (std::exception const&) {
+		throw;
+	}
+
+	m_windows.push_back(window);
+	return window.get();
+
+}
+
+IWindow* Fyuu::WindowsWindowManager::Find(std::string name) {
+
+	for (auto& window : m_windows) {
+		if (window->GetName() == name) {
+			return window.get();
+		}
+	}
+
+	return nullptr;
+
+}
+
+void WindowsWindowManager::Destroy(IWindow* _window) {
+
+	auto it = std::find_if(m_windows.begin(), m_windows.end(),
+		[&](std::shared_ptr<WindowsWindow> const& window) {
+			return window.get() == _window;
+		}
+	);
+	if (it != m_windows.end()) { 
+		m_windows.erase(it);
+	}
+
+}
+
+void WindowsWindowManager::Destroy(std::string name) {
+
+	auto it = std::find_if(m_windows.begin(), m_windows.end(),
+		[&](std::shared_ptr<WindowsWindow> const& window) {
+			return window->GetName() == name;
+		}
+	);
+	if (it != m_windows.end()) { 
+		m_windows.erase(it);
+	}
+
 }

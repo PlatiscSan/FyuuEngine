@@ -5,7 +5,8 @@ typedef enum {
 
 	FYUU_SUCCESS,
 
-	FYUU_INIT_FAILED
+	FYUU_INIT_FAILED,
+	FYUU_WINDOW_ERROR,
 
 }Fyuu_error_t;
 

@@ -18,11 +18,12 @@ extern "C" {
 
 	FYUU_API Fyuu_Window Fyuu_CreateWindow(char const* name);
 	FYUU_API Fyuu_Window Fyuu_FindWindow(char const* name);
-	FYUU_API Fyuu_error_t Fyuu_SetWindowTitle(Fyuu_Window window, char const* title);
-	FYUU_API Fyuu_error_t Fyuu_SetWindowSize(Fyuu_Window window, uint32_t width, uint32_t height);
-	FYUU_API Fyuu_error_t Fyuu_SetWindowPosition(Fyuu_Window window, int x, int y);
-	FYUU_API Fyuu_error_t Fyuu_ShowWindow(Fyuu_Window window);
+	FYUU_API void Fyuu_SetWindowTitle(Fyuu_Window window, char const* title);
+	FYUU_API void Fyuu_SetWindowSize(Fyuu_Window window, uint32_t width, uint32_t height);
+	FYUU_API void Fyuu_SetWindowPosition(Fyuu_Window window, int x, int y);
+	FYUU_API void Fyuu_ShowWindow(Fyuu_Window window);
 	FYUU_API void Fyuu_DestroyWindow(Fyuu_Window window);
+	FYUU_API char const* Fyuu_GetWindowName(Fyuu_Window window);
 
 
 #if defined(__cplusplus)

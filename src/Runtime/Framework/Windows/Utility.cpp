@@ -35,3 +35,22 @@ std::string Fyuu::windows_util::GetLastErrorFromWinAPI() {
 
 
 }
+
+std::variant<std::string, std::wstring> Fyuu::windows_util::ConvertString(std::string str) {
+
+#if defined(_UNICODE)
+    int size_needed = MultiByteToWideChar(CP_ACP, 0, str.c_str(), int(str.size()), nullptr, 0);
+    if (size_needed == 0) {
+        throw std::runtime_error("MultiByteToWideChar failed");
+    }
+    std::wstring wstr(size_needed, 0);
+    if (!MultiByteToWideChar(CP_ACP, 0, str.c_str(), int(str.size()), &wstr[0], size_needed)) {
+        throw std::runtime_error("MultiByteToWideChar failed");
+    }
+    return wstr;
+#else
+    return str;
+#endif // defined(_UNICODE)
+
+
+}

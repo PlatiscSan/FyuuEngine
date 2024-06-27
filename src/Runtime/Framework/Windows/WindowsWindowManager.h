@@ -2,6 +2,7 @@
 #define WINDOWS_WINDOW_H
 
 #include "../Interface/IWindowManager.h"
+#include "../Common/Singleton.h"
 
 #include <Windows.h>
 #include <windowsx.h>
@@ -13,6 +14,7 @@ namespace Fyuu {
 	public:
 
 		WindowsWindow(std::string name, HINSTANCE handle);
+		~WindowsWindow() noexcept;
 
 		void SetTitle(std::string title) override;
 		void SetSize(std::uint32_t width, std::uint32_t height) override;
@@ -33,6 +35,26 @@ namespace Fyuu {
 
 	};
 
+	class WindowsWindowManager : public IWindowManager, public Singleton<WindowsWindowManager> {
+
+		friend class Singleton<WindowsWindowManager>;
+
+	public:
+
+		IWindow* Create(std::string name) override;
+		IWindow* Find(std::string name) override;
+		void Destroy(IWindow* window) override;
+		void Destroy(std::string name) override;
+
+	private:
+
+		WindowsWindowManager() = default;
+
+	private:
+
+		std::vector<std::shared_ptr<WindowsWindow>> m_windows;
+
+	};
 
 }
 
