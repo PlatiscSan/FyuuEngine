@@ -14,6 +14,7 @@ Fyuu::WindowsWindow::WindowsWindow(std::string const& name)
 	WNDCLASSEX wcex{};
 
 	wcex.cbSize = sizeof(WNDCLASSEX);
+	wcex.style = CS_VREDRAW | CS_HREDRAW | CS_OWNDC;
 	wcex.hInstance = AppInstance();
 	wcex.lpfnWndProc = WindowProc;
 	wcex.lpszClassName = m_cname.c_str();
@@ -27,7 +28,10 @@ Fyuu::WindowsWindow::WindowsWindow(std::string const& name)
 	int width = desktop_rect.right - desktop_rect.left;
 	int height = desktop_rect.bottom - desktop_rect.top;
 
-	RegisterClassEx(&wcex);
+	if (!RegisterClassEx(&wcex)) {
+		throw std::runtime_error(GetLastErrorFromWinAPI());
+	}
+
 	m_hwnd = CreateWindowEx(0, m_cname.c_str(), TEXT(""), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, wcex.hInstance, this);
 	if (!m_hwnd) {
 		UnregisterClass(wcex.lpszClassName, wcex.hInstance);

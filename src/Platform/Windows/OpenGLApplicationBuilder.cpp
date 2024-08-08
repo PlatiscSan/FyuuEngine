@@ -1,14 +1,16 @@
 
 #include "pch.h"
+#include "OpenGLApplicationBuilder.h"
 #include "D3D12ApplicationBuilder.h"
 #include "Framework/Event/MessageBus.h"
 #include "Framework/Core/Logger.h"
 #include "Framework/Core/AppTimer.h"
 #include "Framework/Core/AssetLoader.h"
 #include "WindowsWindow.h"
-#include "D3D12Device.h"
+#include "OpenGLDevice.h"
 
-void Fyuu::D3D12ApplicationBuilder::BuildBasicSystem() {
+
+void Fyuu::OpenGLApplicationBuilder::BuildBasicSystem() {
 
 	Logger::GetInstance().Info("Initializd Log!");
 	MessageBus::GetInstance();
@@ -19,7 +21,7 @@ void Fyuu::D3D12ApplicationBuilder::BuildBasicSystem() {
 
 }
 
-void Fyuu::D3D12ApplicationBuilder::BuildMainWindow() {
+void Fyuu::OpenGLApplicationBuilder::BuildMainWindow() {
 
 	m_app->m_window = std::make_shared<WindowsWindow>("Main Window");
 	m_app->m_window->SetTitle("Fyuu Engine");
@@ -28,13 +30,13 @@ void Fyuu::D3D12ApplicationBuilder::BuildMainWindow() {
 
 };
 
-void Fyuu::D3D12ApplicationBuilder::BuildRenderer() {
+void Fyuu::OpenGLApplicationBuilder::BuildRenderer() {
 
-	m_app->m_device = std::make_shared<D3D12Device>();
+	m_app->m_device = std::make_shared<OpenGLDevice>(std::dynamic_pointer_cast<WindowsWindow>(m_app->m_window).get());
 
 }
 
-void Fyuu::D3D12ApplicationBuilder::BuildTick() {
+void Fyuu::OpenGLApplicationBuilder::BuildTick() {
 
 	m_app->m_tick = []() {
 

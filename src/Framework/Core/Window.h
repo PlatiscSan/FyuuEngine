@@ -27,6 +27,7 @@ namespace Fyuu {
 
 		virtual void* GetNativeWindow() const noexcept = 0;
 
+		using WindowPtr = std::shared_ptr<Window>;
 
 	protected:
 

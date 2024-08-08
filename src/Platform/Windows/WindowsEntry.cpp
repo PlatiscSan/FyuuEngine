@@ -1,6 +1,9 @@
+
 #include "pch.h"
 #include "Framework/Application/FyuuEntry.h"
 #include "D3D12ApplicationBuilder.h"
+#include "VulkanApplicationBuilder.h"
+#include "OpenGLApplicationBuilder.h"
 
 using namespace Fyuu;
 
@@ -24,7 +27,7 @@ static auto InitD3D12App(int& argc, char**& argv) {
 
 static auto InitVulkanApp(int& argc, char**& argv) {
 
-    auto builder = std::make_shared<D3D12ApplicationBuilder>();
+    auto builder = std::make_shared<VulkanApplicationBuilder>();
     auto director = std::make_shared<ApplicationDirector>(builder);
     director->Construct();
     return builder->GetApp();
@@ -33,7 +36,7 @@ static auto InitVulkanApp(int& argc, char**& argv) {
 
 static auto InitOpenGLApp(int& argc, char**& argv) {
 
-    auto builder = std::make_shared<D3D12ApplicationBuilder>();
+    auto builder = std::make_shared<OpenGLApplicationBuilder>();
     auto director = std::make_shared<ApplicationDirector>(builder);
     director->Construct();
     return builder->GetApp();

@@ -4,7 +4,7 @@
 
 int main(int argc, char** argv) {
 
-	std::shared_ptr<Fyuu::Application> app;
+	Fyuu::Application::ApplicationPtr app;
 
 	try {
 

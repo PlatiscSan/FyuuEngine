@@ -1,14 +1,14 @@
-
 #include "pch.h"
+#include "VulkanApplicationBuilder.h"
 #include "D3D12ApplicationBuilder.h"
 #include "Framework/Event/MessageBus.h"
 #include "Framework/Core/Logger.h"
 #include "Framework/Core/AppTimer.h"
 #include "Framework/Core/AssetLoader.h"
 #include "WindowsWindow.h"
-#include "D3D12Device.h"
+#include "VulkanDevice.h"
 
-void Fyuu::D3D12ApplicationBuilder::BuildBasicSystem() {
+void Fyuu::VulkanApplicationBuilder::BuildBasicSystem() {
 
 	Logger::GetInstance().Info("Initializd Log!");
 	MessageBus::GetInstance();
@@ -19,22 +19,22 @@ void Fyuu::D3D12ApplicationBuilder::BuildBasicSystem() {
 
 }
 
-void Fyuu::D3D12ApplicationBuilder::BuildMainWindow() {
+void Fyuu::VulkanApplicationBuilder::BuildMainWindow() {
 
 	m_app->m_window = std::make_shared<WindowsWindow>("Main Window");
 	m_app->m_window->SetTitle("Fyuu Engine");
 	m_app->m_window->Show();
 	Logger::GetInstance().Normal("Created Window");
 
-};
+}
 
-void Fyuu::D3D12ApplicationBuilder::BuildRenderer() {
+void Fyuu::VulkanApplicationBuilder::BuildRenderer() {
 
-	m_app->m_device = std::make_shared<D3D12Device>();
+	m_app->m_device = std::make_shared<VulkanDevice>();
 
 }
 
-void Fyuu::D3D12ApplicationBuilder::BuildTick() {
+void Fyuu::VulkanApplicationBuilder::BuildTick() {
 
 	m_app->m_tick = []() {
 

@@ -4,6 +4,7 @@
 #include <memory>
 #include <stdexcept>
 #include "Framework/Core/Window.h"
+#include "Framework/Renderer/GraphicsDevice.h"
 
 namespace Fyuu {
 
@@ -32,11 +33,14 @@ namespace Fyuu {
 			return m_quit;
 		}
 
+		using ApplicationPtr = std::shared_ptr<Application>;
+
 	private:
 
 		Application();
 
-		std::unique_ptr<Window> m_window;
+		Window::WindowPtr m_window;
+		GraphicsDevice::GraphicsDevicePtr m_device;
 		std::function<void()> m_tick;
 		std::atomic_bool m_quit;
 
@@ -48,16 +52,18 @@ namespace Fyuu {
 
 		virtual ~ApplicationBuilder() noexcept = default;
 
-		std::shared_ptr<Application> const& GetApp() const noexcept { return m_app; }
+		Application::ApplicationPtr const& GetApp() const noexcept { return m_app; }
 
 		virtual void BuildBasicSystem() = 0;
 		virtual void BuildMainWindow() = 0;
 		virtual void BuildTick() = 0;
 		virtual void BuildRenderer() = 0;
 
+		using ApplicationBuilderPtr = std::shared_ptr<ApplicationBuilder>;
+
 	protected:
 
-		std::shared_ptr<Application> m_app;
+		Application::ApplicationPtr m_app;
 
 	};
 
@@ -77,13 +83,13 @@ namespace Fyuu {
 			m_builder->BuildTick();
 		}
 
-		std::shared_ptr<Application> const& GetApp() const noexcept {
+		Application::ApplicationPtr const& GetApp() const noexcept {
 			return m_builder->GetApp();
 		}
 
 	private:
 
-		std::shared_ptr<ApplicationBuilder> m_builder;
+		ApplicationBuilder::ApplicationBuilderPtr m_builder;
 
 	};
 
