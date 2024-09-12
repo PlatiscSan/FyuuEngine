@@ -30,7 +30,7 @@ Fyuu::graphics::d3d12::CommandQueue::CommandQueue(D3D12_COMMAND_LIST_TYPE type, 
 
 	m_fence_event = CreateEvent(nullptr, false, false, nullptr);
 	if (!m_fence_event) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	m_allocator_pool = std::make_unique<CommandAllocatorPool>(m_type, device);

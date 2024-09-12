@@ -25,207 +25,207 @@ void Fyuu::graphics::opengl::LoadWGLExt() {
 
 	HWND hwnd = CreateWindowEx(0, TEXT("OpenGL init"), TEXT(""), 0, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, WindowsAppInstance(), nullptr);
 	if (!hwnd) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	device_context = GetDC(hwnd);
 	if (!device_context) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	if (!SetPixelFormat(device_context, 1, &pixel_format)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	render_context = wglCreateContext(device_context);
 	if (!render_context) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	if (!wglMakeCurrent(device_context, render_context)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	wglChoosePixelFormatARB = (PFNWGLCHOOSEPIXELFORMATARBPROC)wglGetProcAddress("wglChoosePixelFormatARB");
 	if (!wglChoosePixelFormatARB) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
 	if (!wglCreateContextAttribsARB) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	wglSwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
 	if (!wglSwapIntervalEXT) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glAttachShader = (PFNGLATTACHSHADERPROC)wglGetProcAddress("glAttachShader");
 	if (!glAttachShader) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glBindBuffer = (PFNGLBINDBUFFERPROC)wglGetProcAddress("glBindBuffer");
 	if (!glBindBuffer)
 	{
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)wglGetProcAddress("glBindVertexArray");
 	if (!glBindVertexArray)
 	{
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glBufferData = (PFNGLBUFFERDATAPROC)wglGetProcAddress("glBufferData");
 	if (!glBufferData) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glCompileShader = (PFNGLCOMPILESHADERPROC)wglGetProcAddress("glCompileShader");
 	if (!glCompileShader) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glCreateProgram = (PFNGLCREATEPROGRAMPROC)wglGetProcAddress("glCreateProgram");
 	if (!glCreateProgram) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glCreateShader = (PFNGLCREATESHADERPROC)wglGetProcAddress("glCreateShader");
 	if (!glCreateShader) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)wglGetProcAddress("glDeleteBuffers");
 	if (!glDeleteBuffers) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDeleteProgram = (PFNGLDELETEPROGRAMPROC)wglGetProcAddress("glDeleteProgram");
 	if (!glDeleteProgram) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDeleteShader = (PFNGLDELETESHADERPROC)wglGetProcAddress("glDeleteShader");
 	if (!glDeleteShader) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSPROC)wglGetProcAddress("glDeleteVertexArrays");
 	if (!glDeleteVertexArrays) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDetachShader = (PFNGLDETACHSHADERPROC)wglGetProcAddress("glDetachShader");
 	if (!glDetachShader) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)wglGetProcAddress("glEnableVertexAttribArray");
 	if (!glEnableVertexAttribArray) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGenBuffers = (PFNGLGENBUFFERSPROC)wglGetProcAddress("glGenBuffers");
 	if (!glGenBuffers) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)wglGetProcAddress("glGenVertexArrays");
 	if (!glGenVertexArrays) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetAttribLocation = (PFNGLGETATTRIBLOCATIONPROC)wglGetProcAddress("glGetAttribLocation");
 	if (!glGetAttribLocation) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetProgramInfoLog = (PFNGLGETPROGRAMINFOLOGPROC)wglGetProcAddress("glGetProgramInfoLog");
 	if (!glGetProgramInfoLog) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetProgramiv = (PFNGLGETPROGRAMIVPROC)wglGetProcAddress("glGetProgramiv");
 	if (!glGetProgramiv) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetShaderInfoLog = (PFNGLGETSHADERINFOLOGPROC)wglGetProcAddress("glGetShaderInfoLog");
 	if (!glGetShaderInfoLog) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetShaderiv = (PFNGLGETSHADERIVPROC)wglGetProcAddress("glGetShaderiv");
 	if (!glGetShaderiv) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glLinkProgram = (PFNGLLINKPROGRAMPROC)wglGetProcAddress("glLinkProgram");
 	if (!glLinkProgram) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glShaderSource = (PFNGLSHADERSOURCEPROC)wglGetProcAddress("glShaderSource");
 	if (!glShaderSource) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glUseProgram = (PFNGLUSEPROGRAMPROC)wglGetProcAddress("glUseProgram");
 	if (!glUseProgram) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)wglGetProcAddress("glVertexAttribPointer");
 	if (!glVertexAttribPointer) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glBindAttribLocation = (PFNGLBINDATTRIBLOCATIONPROC)wglGetProcAddress("glBindAttribLocation");
 	if (!glBindAttribLocation) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGetUniformLocation = (PFNGLGETUNIFORMLOCATIONPROC)wglGetProcAddress("glGetUniformLocation");
 	if (!glGetUniformLocation) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glUniformMatrix4fv = (PFNGLUNIFORMMATRIX4FVPROC)wglGetProcAddress("glUniformMatrix4fv");
 	if (!glUniformMatrix4fv) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glActiveTexture = (PFNGLACTIVETEXTUREPROC)wglGetProcAddress("glActiveTexture");
 	if (!glActiveTexture) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glUniform1i = (PFNGLUNIFORM1IPROC)wglGetProcAddress("glUniform1i");
 	if (!glUniform1i) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glGenerateMipmap = (PFNGLGENERATEMIPMAPPROC)wglGetProcAddress("glGenerateMipmap");
 	if (!glGenerateMipmap) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glDisableVertexAttribArray = (PFNGLDISABLEVERTEXATTRIBARRAYPROC)wglGetProcAddress("glDisableVertexAttribArray");
 	if (!glDisableVertexAttribArray) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glUniform3fv = (PFNGLUNIFORM3FVPROC)wglGetProcAddress("glUniform3fv");
 	if (!glUniform3fv) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glUniform4fv = (PFNGLUNIFORM4FVPROC)wglGetProcAddress("glUniform4fv");
 	if (!glUniform4fv) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	wglMakeCurrent(nullptr, nullptr);
@@ -244,7 +244,7 @@ void Fyuu::graphics::opengl::InitializeWindowsGLContext(HWND hwnd) {
 
 	HDC device_context = GetDC(hwnd);
 	if (!device_context) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	int pixel_format;
@@ -292,7 +292,7 @@ void Fyuu::graphics::opengl::InitializeWindowsGLContext(HWND hwnd) {
 
 	// Query for a pixel format that fits the attributes we want.
 	if (!wglChoosePixelFormatARB(device_context, attribute_list.data(), nullptr, 1, &pixel_format, &format_count)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	PIXELFORMATDESCRIPTOR pixel_format_descriptor = { .nSize = sizeof(PIXELFORMATDESCRIPTOR) };
@@ -300,7 +300,7 @@ void Fyuu::graphics::opengl::InitializeWindowsGLContext(HWND hwnd) {
 
 	// If the video card/display can handle our desired pixel format then we set it as the current one.
 	if (!SetPixelFormat(device_context, pixel_format, &pixel_format_descriptor)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	std::memset(attribute_list.data(), 0, attribute_list.size());
@@ -317,12 +317,12 @@ void Fyuu::graphics::opengl::InitializeWindowsGLContext(HWND hwnd) {
 	// Create a OpenGL 4.5 rendering context.
 	HGLRC rendering_context = wglCreateContextAttribsARB(device_context, 0, attribute_list.data());
 	if (!rendering_context) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	// Set the rendering context to active.
 	if (!wglMakeCurrent(device_context, rendering_context)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	glClearDepth(1.0f);

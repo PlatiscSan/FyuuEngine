@@ -16,7 +16,7 @@ namespace Fyuu::utility::windows {
 	using String = std::string;
 #endif // defined(_UNICODE) || defined(UNICODE)
 
-	std::string GetLastErrorFromWinAPI();
+	std::string GetLastErrorMessageFromWinAPI();
 	std::variant<std::string, std::wstring> ConvertString(std::string const& str);
 	std::string WStringToString(std::wstring const& wstr);
 

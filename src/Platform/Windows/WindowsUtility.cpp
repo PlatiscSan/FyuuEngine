@@ -2,7 +2,7 @@
 #include "pch.h"
 #include "WindowsUtility.h"
 
-std::string Fyuu::utility::windows::GetLastErrorFromWinAPI() {
+std::string Fyuu::utility::windows::GetLastErrorMessageFromWinAPI() {
 
     DWORD raw_error = GetLastError();
     if (raw_error == 0) {  

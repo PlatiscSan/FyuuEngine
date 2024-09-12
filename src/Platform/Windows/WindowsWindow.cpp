@@ -32,13 +32,13 @@ Fyuu::core::WindowsWindow::WindowsWindow(std::string const& name)
 	int height = desktop_rect.bottom - desktop_rect.top;
 
 	if (!RegisterClassEx(&wcex)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	m_hwnd = CreateWindowEx(0, m_cname.c_str(), TEXT(""), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, wcex.hInstance, this);
 	if (!m_hwnd) {
 		UnregisterClass(wcex.lpszClassName, wcex.hInstance);
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 
 	RECT rect{};
@@ -56,19 +56,19 @@ Fyuu::core::WindowsWindow::~WindowsWindow() noexcept {
 
 void Fyuu::core::WindowsWindow::SetTitle(std::string const& title) {
 	if (!SetWindowText(m_hwnd, std::get<String>(ConvertString(title)).c_str())) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 }
 
 void Fyuu::core::WindowsWindow::SetSize(std::uint32_t width, std::uint32_t height) {
 	if (!SetWindowPos(m_hwnd, 0, 0, 0, width, height, SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOZORDER)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 }
 
 void Fyuu::core::WindowsWindow::SetPosition(int x, int y) {
 	if (!SetWindowPos(m_hwnd, 0, x, y, 0, 0, SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_NOSIZE)) {
-		throw std::runtime_error(GetLastErrorFromWinAPI());
+		throw std::runtime_error(GetLastErrorMessageFromWinAPI());
 	}
 }
 
