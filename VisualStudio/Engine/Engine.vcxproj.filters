@@ -1,0 +1,231 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Framework">
+      <UniqueIdentifier>{1a4f2e2d-c61e-4046-b084-98b306f6df76}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Framework\Core">
+      <UniqueIdentifier>{dc4852d4-fd3f-462d-a76a-eaa68cfc852f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="API Header">
+      <UniqueIdentifier>{86b5ffe4-b524-40c4-a7d4-586909f9c61a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Framework\Event">
+      <UniqueIdentifier>{a17113a5-dd09-49f0-a78e-b37f942aaac0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Platform">
+      <UniqueIdentifier>{fe845237-ecfb-4d72-9a41-4ddae057157f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Platform\Windows">
+      <UniqueIdentifier>{b3399ce9-4b0b-4d95-b252-3b7a93273af2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Framework\Utility">
+      <UniqueIdentifier>{2a40768d-a7c1-415f-a9b4-9132462fb65b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer">
+      <UniqueIdentifier>{65edba2f-d484-4416-af22-d9519f695b16}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Math">
+      <UniqueIdentifier>{c5d31492-c0fe-42d6-bb52-b5b869bbb0ef}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer\D3D12">
+      <UniqueIdentifier>{1ed23695-8989-4615-8a3d-8f25441b9cb1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer\OpenGL">
+      <UniqueIdentifier>{95935b27-0916-4f4d-a8c1-2d247eba4142}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer\Vulkan">
+      <UniqueIdentifier>{3c664c63-5def-4e5a-8397-1e3f9ffb78c2}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\pch.cpp" />
+    <ClCompile Include="..\..\src\Framework\Core\GameCore.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\WindowsGameCore.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\WindowsWindow.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\WindowsUtility.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\WindowsAppInstance.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\Logger.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\dllmain.c" />
+    <ClCompile Include="..\..\src\Framework\Core\MessageBus.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\GameTimer.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\ThreadPool.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\FileSystem.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\MemoryManager.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Core\Color.cpp">
+      <Filter>Framework\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Framework\Utility\Hash.cpp">
+      <Filter>Framework\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Math\Vector4f.cpp">
+      <Filter>Math</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\CommandAllocatorPool.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\CommandListManager.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\D3D12Core.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\DescriptorHeap.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\Sampler.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\OpenGL\OpenGLCore.cpp">
+      <Filter>Renderer\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\Vulkan\VulkanCore.cpp">
+      <Filter>Renderer\Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\Texture.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Platform\Windows\WindowsOpenGL.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Renderer\D3D12\CommandContext.cpp">
+      <Filter>Renderer\D3D12</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\pch.h" />
+    <ClInclude Include="..\..\src\Framework\Core\GameCore.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\Window.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Platform\Windows\WindowsUtility.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Platform\Windows\WindowsWindow.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Platform\Windows\WindowsAppInstance.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\Logger.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\APIControl.h">
+      <Filter>API Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\FyuuCore.h">
+      <Filter>API Header</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\MessageBus.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\Keycode.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\MouseButton.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\Scancode.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Event\ApplicationEvent.h">
+      <Filter>Framework\Event</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Event\Event.h">
+      <Filter>Framework\Event</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Event\KeyboardEvent.h">
+      <Filter>Framework\Event</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Event\MouseEvent.h">
+      <Filter>Framework\Event</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Event\WindowEvent.h">
+      <Filter>Framework\Event</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\GameTimer.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\ThreadPool.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\FileSystem.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\MemoryManager.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Core\Color.h">
+      <Filter>Framework\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Utility\RangeMap.h">
+      <Filter>Framework\Utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Utility\Hash.h">
+      <Filter>Framework\Utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Framework\Utility\Memory.h">
+      <Filter>Framework\Utility</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Math\Vector4f.h">
+      <Filter>Math</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\CommandAllocatorPool.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\CommandListManager.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\D3D12Core.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\Sampler.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\DescriptorHeap.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\GPUResource.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\LinearAllocator.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\OpenGL\OpenGLCore.h">
+      <Filter>Renderer\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\Vulkan\VulkanCore.h">
+      <Filter>Renderer\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\Texture.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\Renderer\D3D12\CommandContext.h">
+      <Filter>Renderer\D3D12</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
