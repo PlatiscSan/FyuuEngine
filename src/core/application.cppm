@@ -1,8 +1,9 @@
 module;
+#include <GL/glcorearb.h>
+
 #ifdef WIN32
-#include <tchar.h>
-#include <Windows.h>
 #include <windowsx.h>
+#include <tchar.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -10,6 +11,7 @@ module;
 #include <wrl/client.h>
 #include <comdef.h>
 #include "d3dx12.h"
+#include <GL/wglext.h>
 #endif // WIN32
 
 export module application;
@@ -20,6 +22,7 @@ import circular_buffer;
 import simple_logger;
 #ifdef WIN32
 import d3d12_renderer;
+import win32_opengl_renderer;
 #endif // WIN32
 
 
@@ -60,6 +63,8 @@ export namespace core {
 #ifdef WIN32
 			static std::optional<platform::Win32Window> main_window;
 			static std::optional<graphics::api::d3d12::D3D12RenderDevice> d3d12_device;
+			static std::optional<graphics::api::opengl::Win32OpenGLRenderDevice> opengl_device;
+
 			try {
 				main_window.emplace("Hello", 800, 600);
 			}
@@ -71,7 +76,7 @@ export namespace core {
 			}
 			catch (std::exception const& ex) {
 				m_main_logger->Fatal(std::source_location::current(), "exception thrown: {}", ex.what());
-				std::terminate();
+				std::exit(-1);
 			}
 
 			m_main_window = &main_window.value();
@@ -86,6 +91,8 @@ export namespace core {
 				}
 			);
 
+			// TODO: read config from file to determine which api to use
+
 			try {
 				d3d12_device.emplace(*main_window);
 			}
@@ -93,7 +100,7 @@ export namespace core {
 				auto error_msg = platform::FromTChar(ex.ErrorMessage());
 				m_main_logger->Fatal(std::source_location::current(), "Win32 exception thrown: {}", error_msg);
 				MessageBox(nullptr, ex.ErrorMessage(), TEXT("Fatal error"), MB_ICONERROR | MB_OK);
-				std::terminate();
+				std::exit(-1);
 			}
 			m_device = &d3d12_device.value();
 

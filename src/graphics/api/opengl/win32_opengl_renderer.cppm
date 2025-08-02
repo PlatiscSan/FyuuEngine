@@ -12,7 +12,7 @@ import std;
 
 namespace graphics::api::opengl {
 #ifdef WIN32
-	class Win32OpenGLRenderDevice : public IRenderDevice {
+	export class Win32OpenGLRenderDevice : public IRenderDevice {
 	private:
 		HDC m_device_context;
 		HGLRC m_gl_render_context;
