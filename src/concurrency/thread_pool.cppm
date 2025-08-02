@@ -1,6 +1,6 @@
 ﻿module;
 #if defined(_WIN32)
-#include <windows.h>
+#include <Windows.h>
 #include <pdh.h>
 #include <pdhmsg.h>
 #pragma comment(lib, "pdh.lib")
@@ -18,7 +18,6 @@
 #ifdef ERROR
 	#undef ERROR
 #endif // ERROR
-
 
 export module thread_pool;
 export import logger_interface;
@@ -77,7 +76,7 @@ export namespace concurrency {
 		static void Work(Worker* worker, std::stop_token const& token) {
 
 			std::binary_semaphore semaphore(0);
-			std::stop_callback(
+			std::stop_callback stop_callback(
 				token,
 				[&semaphore]() {
 					semaphore.release();
@@ -403,7 +402,7 @@ export namespace concurrency {
 		ConcurrentVector<std::unique_ptr<Worker>> m_workers;
 		DelayTaskQueue m_delay_queue;
 		std::optional<Worker> m_monitor;
-		logger::LoggerPtr m_logger = nullptr;
+		core::LoggerPtr m_logger = nullptr;
 		std::chrono::milliseconds m_adjustment_interval;
 		std::chrono::milliseconds m_polling_interval;
 		std::atomic<std::binary_semaphore*> m_semaphore;
@@ -598,7 +597,7 @@ export namespace concurrency {
 					auto percentage = system_load * 100.0;
 
 					pool->m_logger->Log(
-						logger::LogLevel::DEBUG,
+						core::LogLevel::DEBUG,
 						std::source_location::current(),
 						"System CPU load: {:.2f}%",
 						percentage
@@ -618,7 +617,7 @@ export namespace concurrency {
 					if (pool->m_logger) {
 						auto percentage = avg_workload * 100.0;
 						pool->m_logger->Log(
-							logger::LogLevel::DEBUG,
+							core::LogLevel::DEBUG,
 							std::source_location::current(),
 							"Average worker workload: {:.2f}%",
 							percentage
@@ -635,7 +634,7 @@ export namespace concurrency {
 
 						if (pool->m_logger) {
 							pool->m_logger->Log(
-								logger::LogLevel::INFO,
+								core::LogLevel::INFO,
 								std::source_location::current(),
 								"Scaling up workers: {} -> {}",
 								current_count, 
@@ -649,7 +648,7 @@ export namespace concurrency {
 						if (pool->m_logger) {
 							auto new_count = current_count - 1;
 							pool->m_logger->Log(
-								logger::LogLevel::INFO,
+								core::LogLevel::INFO,
 								std::source_location::current(),
 								"Scaling down workers: {} -> {}",
 								current_count, 
@@ -684,7 +683,7 @@ export namespace concurrency {
 
 							if (pool->m_logger) {
 								pool->m_logger->Log(
-									logger::LogLevel::DEBUG,
+									core::LogLevel::DEBUG,
 									std::source_location::current(),
 									"Redistributed {} tasks from released worker",
 									redistributed
@@ -698,7 +697,7 @@ export namespace concurrency {
 				std::string_view ex_message = ex.what();
 				if (pool->m_logger) {
 					pool->m_logger->Log(
-						logger::LogLevel::ERROR,
+						core::LogLevel::ERROR,
 						std::source_location::current(),
 						"Exception in adjustment: {}",
 						ex_message
@@ -708,7 +707,7 @@ export namespace concurrency {
 			catch (...) {
 				if (pool->m_logger) {
 					pool->m_logger->Log(
-						logger::LogLevel::ERROR,
+						core::LogLevel::ERROR,
 						std::source_location::current(),
 						"Unknown exception in adjustment"
 					);
@@ -744,7 +743,7 @@ export namespace concurrency {
 
 				if (pool->m_logger) {
 					pool->m_logger->Log(
-						logger::LogLevel::TRACE,
+						core::LogLevel::TRACE,
 						std::source_location::current(),
 						"Processing delayed task"
 					);
@@ -860,23 +859,23 @@ export namespace concurrency {
 
 		}
 
-		template <std::convertible_to<logger::LoggerPtr> Logger>
+		template <std::convertible_to<core::LoggerPtr> Logger>
 		ThreadPool(
 			std::size_t min,
 			std::size_t max,
-			Logger&& logger,
+			Logger&& core,
 			std::chrono::milliseconds adjustment_interval = std::chrono::milliseconds(5000),
 			std::chrono::milliseconds polling_interval = std::chrono::milliseconds(1000)
 		) : m_min(min),
 			m_max(max),
-			m_logger(util::MakeReferred(std::forward<Logger>(logger))),
+			m_logger(util::MakeReferred(std::forward<Logger>(core))),
 			m_adjustment_interval(adjustment_interval),
 			m_polling_interval(polling_interval) {
 
 			if (m_logger) {
 
 				m_logger->Log(
-					logger::LogLevel::INFO,
+					core::LogLevel::INFO,
 					std::source_location::current(),
 					"ThreadPool created: min={}, max={}, adjustment={}, polling={}",
 					min,
@@ -891,13 +890,6 @@ export namespace concurrency {
 		void Stop() {
 			if (!m_running.test(std::memory_order::acquire)) {
 				return;
-			}
-			if (m_logger) {
-				m_logger->Log(
-					logger::LogLevel::DEBUG,
-					std::source_location::current(),
-					"Stopping ThreadPool"
-				);
 			}
 
 			{
@@ -955,7 +947,7 @@ export namespace concurrency {
 			if (m_logger) {
 				auto delay_count = delay.count();
 				m_logger->Log(
-					logger::LogLevel::TRACE,
+					core::LogLevel::TRACE,
 					std::source_location::current(),
 					"Submitting scheduled task (delay={}ms)",
 					delay_count
@@ -970,18 +962,7 @@ export namespace concurrency {
 		}
 
 		void CancelScheduledTask(std::size_t id) {
-
-			if (m_logger) {
-				m_logger->Log(
-					logger::LogLevel::DEBUG,
-					std::source_location::current(),
-					"Canceling scheduled task {}",
-					id
-				);
-			}
-
 			m_delay_queue.CancelTask(id);
-
 		}
 
 		std::vector<float> Workloads() {
@@ -997,7 +978,7 @@ export namespace concurrency {
 			return m_workers.size();
 		}
 
-		logger::LoggerPtr GetLogger() const noexcept {
+		core::LoggerPtr GetLogger() const noexcept {
 			return m_logger;
 		}
 

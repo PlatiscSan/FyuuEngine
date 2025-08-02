@@ -114,13 +114,45 @@ project ("FyuuEngine")
 
 find_package(Boost REQUIRED COMPONENTS uuid)
 find_package(Eigen3 REQUIRED)
+find_package(Vulkan REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(MyApp)
+recursive_group_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" MyApp)
 
-recursive_group_sources(${CMAKE_CURRENT_SOURCE_DIR}/src MyApp)
+target_sources(MyApp 
+    PRIVATE 
+        ${all_files}
+)
 
-target_sources(MyApp PRIVATE ${all_files})
 target_link_libraries(MyApp 
     PRIVATE 
         Boost::uuid
-        Eigen3::Eigen)
+        Eigen3::Eigen
+        imgui::imgui
+        glfw
+        yaml-cpp::yaml-cpp
+        nlohmann_json::nlohmann_json
+        ${Vulkan_LIBRARIES}
+)
+
+target_include_directories(MyApp 
+    PRIVATE 
+        ${Vulkan_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(WIN32)
+    target_link_libraries(MyApp 
+        PRIVATE 
+            d3d12
+            dxgi
+            d3dcompiler
+            dxguid
+            Opengl32
+    )
+endif()
+       

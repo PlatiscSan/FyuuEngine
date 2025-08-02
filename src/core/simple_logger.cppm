@@ -9,7 +9,7 @@ import defer;
 import pointer_wrapper;
 import synchronized_function;
 
-namespace logger::simple_logger {
+namespace core::simple_logger {
 
 	struct LogEntity {
 		std::thread::id thread_id = std::this_thread::get_id();
@@ -23,7 +23,7 @@ namespace logger::simple_logger {
 
 }
 
-export namespace logger::simple_logger {
+export namespace core::simple_logger {
 
 	class IFormatter {
 	public:

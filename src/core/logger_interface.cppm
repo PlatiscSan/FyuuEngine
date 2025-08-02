@@ -2,7 +2,7 @@ export module logger_interface;
 export import pointer_wrapper;
 import std;
 
-export namespace logger {
+export namespace core {
 
 	enum class LogLevel : std::uint8_t {
 		TRACE,

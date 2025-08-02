@@ -9,17 +9,51 @@
 #include <windowsx.h>
 #endif // WIN32
 
-export module windows_window;
-export import window_interface;
+export module win32_window;
+export import event_system;
 
-export namespace core {
+export namespace platform {
 #ifdef WIN32
-	class Win32Exception : public std::exception {
+
+	extern std::string FromTChar(TCHAR const* src) {
+#ifdef UNICODE
+		std::size_t src_len = std::wcslen(src);
+
+		int utf8_len = WideCharToMultiByte(
+			CP_UTF8,
+			0,
+			reinterpret_cast<LPCWSTR>(src),
+			static_cast<int>(src_len),
+			nullptr,
+			0,
+			nullptr,
+			nullptr
+		);
+		if (utf8_len <= 0) {
+			return "Win32Exception: Encoding conversion failed.\0";
+		}
+
+		std::string output(static_cast<std::size_t>(utf8_len) + 1u, 0);
+		WideCharToMultiByte(
+			CP_UTF8,
+			0,
+			reinterpret_cast<LPCWSTR>(src),
+			static_cast<int>(src_len),
+			output.data(),
+			utf8_len,
+			nullptr,
+			nullptr
+		);
+		output[utf8_len] = '\0';
+		return output;
+#else
+		return src;
+#endif
+	}
+
+	class Win32Exception {
 	private:
 		std::vector<TCHAR> m_error_message;
-#ifdef UNICODE
-		mutable std::shared_ptr<char[]> m_converted;
-#endif // UNICODE
 
 	public:
 		explicit Win32Exception(DWORD error_code = ::GetLastError())
@@ -44,73 +78,33 @@ export namespace core {
 
 				std::size_t length = static_cast<std::size_t>(size) + 1;
 				m_error_message.resize(length);
-
 				std::memcpy(m_error_message.data(), buffer, length);
 				LocalFree(buffer);
+
 			}
 			else {
 				TCHAR const default_msg[] = TEXT("Unknown Win32 error\0");
 				constexpr std::size_t length = sizeof(default_msg) / sizeof(TCHAR);
-				m_error_message.resize(length);
+				m_error_message.resize(length, 0);
 				std::memcpy(m_error_message.data(), buffer, length);
 
 			}
 
 		}
 
-		TCHAR const* ErrorMessage() const noexcept {
+		TCHAR const* what() const noexcept {
 			return m_error_message.data();
 		}
-
-		char const* what() const noexcept override {
-#ifdef UNICODE
-			if (m_converted) {
-				return m_converted.get();
-			}
-
-			LPCWSTR src = m_error_message.data();
-			std::size_t src_len = std::wcslen(src);
-
-			int utf8_len = WideCharToMultiByte(
-				CP_UTF8,
-				0,
-				reinterpret_cast<LPCWSTR>(src), 
-				static_cast<int>(src_len),
-				nullptr,
-				0,
-				nullptr, 
-				nullptr
-			);
-			if (utf8_len <= 0) {
-				return "Win32Exception: Encoding conversion failed.\0";
-			}
-
-			m_converted = std::make_shared_for_overwrite<char[]>(static_cast<std::size_t>(utf8_len) + 1);
-			WideCharToMultiByte(
-				CP_UTF8, 
-				0,
-				reinterpret_cast<LPCWSTR>(src), 
-				static_cast<int>(src_len),
-				m_converted.get(), 
-				utf8_len,
-				nullptr, 
-				nullptr
-			);
-			m_converted[utf8_len] = '\0';
-			return m_converted.get();
-#else
-			return m_error_message.data();
-#endif
-		}
-
 
 	};
 
-	class WindowsWindow : public IWindow {
+	class Win32Window : public IWindow {
 	private:
-		std::array<TCHAR, 36u> m_wc_name;
-		HWND m_hwnd = nullptr;
+		using ClassName = std::array<TCHAR, 36u>;
+
 		util::MessageBus m_message_bus;
+		std::array<TCHAR, 36u> m_class_name;
+		HWND m_hwnd = nullptr;
 
 		static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
 
@@ -120,7 +114,7 @@ export namespace core {
 				return 0;
 			}
 
-			auto window = reinterpret_cast<WindowsWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+			auto window = reinterpret_cast<Win32Window*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 			if (!window) {
 				return DefWindowProc(hwnd, msg, wparam, lparam);
 			}
@@ -213,7 +207,7 @@ export namespace core {
 
 		}
 
-		static std::wstring ConvertToWideChar(std::string_view multi_bytes_str) {
+		static std::wstring ConvertToWString(std::string_view multi_bytes_str) {
 
 			std::wstring result_str;
 
@@ -252,34 +246,27 @@ export namespace core {
 			return result_str;
 		}
 
-	public:
-		void Close() noexcept override {
-			if (m_hwnd) {
-				DestroyWindow(m_hwnd);
-				m_hwnd = nullptr;
-				UnregisterClass(m_wc_name.data(), GetModuleHandle(nullptr));
-			}
-		}
-
-		~WindowsWindow() noexcept override {
-			Close();
-		}
-
-		void Create(std::string_view title, std::uint32_t width, std::uint32_t height) override {
-
-			if (m_hwnd) {
-				return;
-			}
-
+		static ClassName GenerateClassName() {
+			ClassName classname{};
 			static boost::uuids::random_generator gen;
-			boost::uuids::to_chars(gen(), m_wc_name.begin());
+			boost::uuids::to_chars(gen(), classname.begin());
+			return classname;
+		}
+
+		static HWND CreateWindowImp(
+			Win32Window* window,
+			std::string_view title, 
+			std::uint32_t width, 
+			std::uint32_t height
+		) {
 
 			HINSTANCE instance = GetModuleHandle(nullptr);
 			WNDCLASSEX wc{};
 			wc.cbSize = sizeof(WNDCLASSEX);
-			wc.lpfnWndProc = WindowsWindow::WndProc;
+			wc.style = CS_OWNDC;
+			wc.lpfnWndProc = Win32Window::WndProc;
 			wc.hInstance = instance;
-			wc.lpszClassName = m_wc_name.data();
+			wc.lpszClassName = window->m_class_name.data();
 			wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 
 			if (!RegisterClassEx(&wc)) {
@@ -287,31 +274,47 @@ export namespace core {
 			}
 
 #ifdef UNICODE 
-			std::wstring wchar_title = WindowsWindow::ConvertToWideChar(title);
+			std::wstring wchar_title = Win32Window::ConvertToWString(title);
 			auto compatible_title = !wchar_title.empty() ? wchar_title.data() : L"Default title";
 #else
 			auto compatible_title = !title.empty() ? title.data() : "Default title";
 #endif // UNICODE
 
-			m_hwnd = CreateWindowEx(
+			auto hwnd = CreateWindowEx(
 				0,
-				wc.lpszClassName, 
+				wc.lpszClassName,
 				compatible_title,
 				WS_OVERLAPPEDWINDOW,
-				CW_USEDEFAULT, 
-				CW_USEDEFAULT, 
-				width, 
+				CW_USEDEFAULT,
+				CW_USEDEFAULT,
+				width,
 				height,
-				nullptr, 
-				nullptr, 
+				nullptr,
+				nullptr,
 				instance,
-				this
+				window
 			);
 
-			if (!m_hwnd) {
+			if (!hwnd) {
 				throw Win32Exception();
 			}
 
+			return hwnd;
+
+		}
+
+	public:
+		Win32Window(std::string_view title, std::uint32_t width, std::uint32_t height)
+			: m_message_bus(), 
+			m_class_name(Win32Window::GenerateClassName()), 
+			m_hwnd(Win32Window::CreateWindowImp(this, title, width, height)) {
+
+		}
+
+
+		~Win32Window() noexcept override {
+			DestroyWindow(m_hwnd);
+			UnregisterClass(m_class_name.data(), GetModuleHandle(nullptr));
 		}
 
 		void Show() override {
@@ -324,15 +327,19 @@ export namespace core {
 
 		void ProcessEvents() override {
 			MSG msg{};
-			if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
-			}
+			bool has_message;
+			do {
+				has_message = PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE);
+				if (has_message) {
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
+			} while (has_message);
 		}
 
 		void SetTitle(std::string_view title) override {
 #ifdef UNICODE 
-			std::wstring wchar_title = WindowsWindow::ConvertToWideChar(title);
+			std::wstring wchar_title = Win32Window::ConvertToWString(title);
 			auto compatible_title = !wchar_title.empty() ? wchar_title.data() : L"Default title";
 #else
 			auto compatible_title = !title.empty() ? title.data() : "Default title";
@@ -347,6 +354,10 @@ export namespace core {
 		}
 
 		void* Native() const noexcept override {
+			return m_hwnd;
+		}
+
+		HWND GetHWND() const noexcept {
 			return m_hwnd;
 		}
 
