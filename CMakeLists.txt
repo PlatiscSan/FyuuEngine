@@ -115,6 +115,7 @@ project ("FyuuEngine")
 find_package(Boost REQUIRED COMPONENTS uuid)
 find_package(Eigen3 REQUIRED)
 find_package(Vulkan REQUIRED)
+find_package(glad CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
@@ -136,6 +137,7 @@ target_link_libraries(MyApp
         glfw
         yaml-cpp::yaml-cpp
         nlohmann_json::nlohmann_json
+        glad::glad
         ${Vulkan_LIBRARIES}
 )
 
@@ -153,6 +155,10 @@ if(WIN32)
             d3dcompiler
             dxguid
             Opengl32
+    )
+    target_compile_definitions(MyApp 
+        PRIVATE 
+            WIN32_LEAN_AND_MEAN
     )
 endif()
        
