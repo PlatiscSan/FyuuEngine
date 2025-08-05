@@ -95,9 +95,9 @@ export namespace concurrency {
 
 			}
 
-			Element(Element&& other) noexcept {
-				auto lock = other.mutex.Lock();
-				new(&storage) value_type(std::move(other.storage));
+			Element(Element&& other) noexcept
+				: storage(std::move(LockedReference(other.storage, other.mutex.Lock()).Get())) {
+
 			}
 
 		};
@@ -256,7 +256,13 @@ export namespace concurrency {
 		};
 
 	public:
+		class iterator;
+		class const_iterator;
+		class Modifier;
+
 		class iterator : public IteratorBase<ConcurrentVector, value_type> {
+			friend const_iterator;
+			friend class Modifier;
 		public:
 			using Base = IteratorBase<ConcurrentVector, value_type>;
 			using Base::Base;
@@ -264,6 +270,8 @@ export namespace concurrency {
 		};
 
 		class const_iterator : public IteratorBase<ConcurrentVector const, value_type const> {
+			friend iterator;
+			friend class Modifier;
 		public:
 			using Base = IteratorBase<ConcurrentVector const, value_type const>;
 			using Base::Base;
@@ -279,7 +287,7 @@ export namespace concurrency {
 	private:
 		void ReserveImp(size_type new_cap) {
 
-			auto lock = m_mutex.Lock();
+			UniqueLock lock = m_mutex.Lock();
 
 			if (new_cap <= m_capacity) {
 				return;
@@ -288,7 +296,8 @@ export namespace concurrency {
 			auto new_block = std::allocator_traits<ElementAlloc>::allocate(m_alloc, new_cap);
 
 			if (m_elements) {
-				for (size_type i = 0; i < m_size; ++i) {
+				size_type size = m_size.load(std::memory_order::relaxed);
+				for (size_type i = 0; i < size; ++i) {
 					std::allocator_traits<ElementAlloc>::construct(m_alloc, &new_block[i], std::move(m_elements[i]));
 					std::allocator_traits<ElementAlloc>::destroy(m_alloc, &m_elements[i]);
 				}
@@ -420,14 +429,6 @@ export namespace concurrency {
 		}
 
 	public:
-		class EmptyContainer : public std::exception {
-		public:
-			EmptyContainer() noexcept
-				: std::exception("empty container") {
-
-			}
-		};
-
 		class View {
 		private:
 			ConcurrentVector const* m_vector;
@@ -538,6 +539,102 @@ export namespace concurrency {
 				return reverse_iterator(begin());
 			}
 
+			std::optional<value_type> pop_back() {
+				if (m_locks.size() == 1u) {
+					// the container is empty;
+					return std::nullopt;
+				}
+				m_locks.pop_back();
+				size_type to_pop = m_vector->m_size.fetch_sub(1u, std::memory_order::relaxed);
+				std::allocator_traits<ElementAlloc>::destroy(
+					m_vector->m_alloc,
+					&m_vector->m_elements[to_pop]
+				);
+			}
+
+			template <class... Args>
+			reference emplace_back(Args&&... args) {
+
+				size_type& capacity = m_vector->m_capacity;
+				size_type size = m_vector->m_size.load(std::memory_order::relaxed);
+				auto& alloc = m_vector->m_alloc;
+				auto& elements = m_vector->m_elements;
+
+				if (capacity == size) {
+
+					size_type old_capacity = capacity;
+					capacity *= 2;
+
+					auto new_block = std::allocator_traits<ElementAlloc>::allocate(alloc, capacity);
+
+					if (elements) {
+						for (size_type i = 0; i < size; ++i) {
+							std::allocator_traits<ElementAlloc>::construct(alloc, &new_block[i], std::move(elements[i].storage));
+							m_locks[i + 1] = new_block[i].mutex.Lock();
+							std::allocator_traits<ElementAlloc>::destroy(alloc, &elements[i]);
+						}
+
+						std::allocator_traits<ElementAlloc>::deallocate(alloc, elements, old_capacity);
+					}
+
+					elements = new_block;
+
+				}
+
+				std::allocator_traits<ElementAlloc>::construct(
+					alloc,
+					&elements[size],
+					std::forward<Args>(args)...
+				);
+
+				m_vector->m_size.fetch_add(1u, std::memory_order::relaxed);
+
+				return elements[size];
+
+			}
+
+			reference push_back(value_type const& value) {
+				return emplace_back(value);
+			}
+
+			reference push_back(value_type&& value) {
+				return emplace_back(value);
+			}
+
+			iterator erase(const_iterator pos) {
+
+				if (pos.m_vector != m_vector) {
+					throw std::invalid_argument("not the same container");
+				}
+
+				size_type current_size = m_locks.size() - 1u;
+
+				if (pos.m_index >= current_size) {
+					throw std::out_of_range("erase iterator outside range");
+				}
+
+				size_type idx = pos.m_index;
+
+				if (idx != current_size - 1) {
+					for (size_type i = idx; i < current_size - 1; ++i) {
+						m_vector->m_elements[i].storage =
+							std::move(m_vector->m_elements[i + 1].storage);
+					}
+				}
+
+				auto& last_element = m_vector->m_elements[current_size - 1];
+				m_locks.pop_back();
+				std::allocator_traits<ElementAlloc>::destroy(
+					m_vector->m_alloc,
+					&last_element
+				);
+
+				m_vector->m_size.store(current_size - 1, std::memory_order_relaxed);
+
+				return iterator(m_vector, idx);
+
+			}
+
 		};
 
 		View LockedView() const {
@@ -597,7 +694,17 @@ export namespace concurrency {
 			return *this;
 		}
 
+		ConcurrentVector(
+			std::initializer_list<T> init,
+			Allocator const& alloc = Allocator()
+		) : m_alloc(alloc) {
+			for (auto& element : init) {
+				EmplaceBackImp(element);
+			}
+		}
+
 		~ConcurrentVector() noexcept {
+			auto lock = ClearImp();
 			std::allocator_traits<ElementAlloc>::deallocate(m_alloc, m_elements, m_capacity);
 		}
 

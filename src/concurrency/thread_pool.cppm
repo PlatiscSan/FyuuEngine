@@ -20,7 +20,7 @@
 #endif // ERROR
 
 export module thread_pool;
-export import logger_interface;
+export import logger;
 
 import std;
 import circular_buffer;

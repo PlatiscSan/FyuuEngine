@@ -1,8 +1,9 @@
 export module event_system;
-export import window_interface;
+import window;
 import std;
 
 export namespace platform {
+
     struct BaseEvent {
         IWindow* source;
         BaseEvent(IWindow* window)

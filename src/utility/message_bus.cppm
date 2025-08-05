@@ -26,19 +26,17 @@ export namespace util {
 
 		};
 
-		// Specialization for function pointers
-		template <class R, class... Args>
-		struct FunctionTraits<R(*)(Args...)> {
-			using ReturnType = R;
+		template <class Ret, class... Args>
+		struct FunctionTraits<Ret(Args...)> {
+			using ReturnType = Ret;
 			using ArgumentTypes = std::tuple<Args...>;
 		};
 
-		// Specialization for function references
-		template <class R, class... Args>
-		struct FunctionTraits<R(&)(Args...)> {
-			using ReturnType = R;
-			using ArgumentTypes = std::tuple<Args...>;
-		};
+		template <class Ret, class... Args>
+		struct FunctionTraits<Ret(&)(Args...)> : public FunctionTraits<Ret(Args...)> {};
+
+		template <class Ret, class... Args>
+		struct FunctionTraits<Ret(*)(Args...)> : public FunctionTraits<Ret(Args...)> {};
 
 		// Specialization for const member function pointers
 		template <class R, class C, class... Args>
@@ -196,13 +194,13 @@ export namespace util {
 		/// @tparam Message The type of the message to be published. Can be any type.
 		/// @param message The message object to be published to subscribers.
 		template <class Message>
-		void Publish(Message&& message) {
+		void Publish(Message&& message) const {
 
 			try {
 
 				std::vector<Subscriber> subscribers;
 
-				SubscriberMap& sub_map = m_message_registries.UnsafeAt(typeid(std::decay_t<Message>));
+				SubscriberMap const& sub_map = m_message_registries.UnsafeAt(typeid(std::decay_t<Message>));
 				{
 					auto view = sub_map.LockedView();
 					for (auto const& [_, subscriber] : view) {

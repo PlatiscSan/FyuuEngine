@@ -1079,15 +1079,36 @@ export namespace concurrency {
 			auto global_lock = m_buckets_mutex.Lock();
 
 			if (m_buckets.size() == 0) {
-				Rehash(16u);
-			}
-			else {
-				TryRehash();
+				throw EmptyContainer();
 			}
 
 			size_type idx = BucketIndex(key);
 
 			Bucket& bucket = m_buckets[idx];
+
+			auto bucket_lock = bucket.mutex.Lock();
+
+			for (auto& [first, second] : bucket.pairs) {
+				if (m_key_equal(first.Get(), key)) {
+					return second;
+				}
+			}
+
+			throw std::out_of_range("the key does not exist in the hash table");
+
+		}
+
+		mapped_type const& UnsafeAt(Key const& key) const {
+
+			auto global_lock = m_buckets_mutex.Lock();
+
+			if (m_buckets.size() == 0) {
+				throw EmptyContainer();
+			}
+
+			size_type idx = BucketIndex(key);
+
+			Bucket const& bucket = m_buckets[idx];
 
 			auto bucket_lock = bucket.mutex.Lock();
 

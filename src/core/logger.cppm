@@ -1,4 +1,4 @@
-export module logger_interface;
+export module logger;
 export import pointer_wrapper;
 import std;
 

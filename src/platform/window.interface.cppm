@@ -1,5 +1,5 @@
-export module window_interface;
-export import message_bus;
+export module window:interface;
+import message_bus;
 import std;
 
 export namespace platform {

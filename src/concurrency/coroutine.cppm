@@ -46,7 +46,7 @@ export namespace concurrency {
 		std::atomic_size_t ref_count = 1u;
 		std::atomic_flag result_ready = {};
 
-		[[noreturn]]
+		
 		inline void AddReference() noexcept {
 			ref_count.fetch_add(1u, std::memory_order::release);
 		}
@@ -80,7 +80,6 @@ export namespace concurrency {
 			}
 
 			template <std::convertible_to<U> Value>
-			[[noreturn]]
 			inline void return_value(Value&& value) noexcept {
 				result.emplace(std::forward<Value>(value));
 				this->result_ready.test_and_set(std::memory_order::release);
@@ -104,7 +103,7 @@ export namespace concurrency {
 				return std::suspend_never();
 			}
 
-			[[noreturn]]
+			
 			inline void return_void() noexcept {
 				this->result_ready.test_and_set(std::memory_order::release);
 				this->result_ready.notify_all();
@@ -136,7 +135,7 @@ export namespace concurrency {
 			return m_handle != nullptr;
 		}
 
-		[[noreturn]]
+		
 		void Wait() const noexcept {
 
 			if (!m_handle) {
@@ -199,7 +198,7 @@ export namespace concurrency {
 				return continuation ? continuation : std::noop_coroutine();
 			}
 
-			[[noreturn]]
+			
 			static constexpr void await_resume() noexcept {
 
 			}
@@ -247,7 +246,7 @@ export namespace concurrency {
 				return Task(std::coroutine_handle<Promise>::from_promise(*this));
 			}
 
-			[[noreturn]]
+			
 			inline void return_void() noexcept {
 				this->result_ready.test_and_set(std::memory_order::release);
 				this->result_ready.notify_all();
@@ -351,7 +350,7 @@ export namespace concurrency {
 
 		}
 
-		[[noreturn]]
+		
 		void Wait() const noexcept {
 
 			if (!m_handle) {

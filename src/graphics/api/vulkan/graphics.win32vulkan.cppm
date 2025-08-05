@@ -1,9 +1,13 @@
 module;
 #include <vulkan/vulkan.h>
 
-export module win32_vulkan_renderer;
-export import renderer_interface;
-export import window_interface;
+#ifdef interface
+    #undef interface
+#endif // interface
+
+export module graphics:win32vulkan;
+import :interface;
+import window;
 import std;
 
 export namespace graphics::api::vulkan {
@@ -31,23 +35,18 @@ export namespace graphics::api::vulkan {
 
         }
 
-        std::unique_ptr<IShader> CreateShader(std::filesystem::path const& vs_src, std::filesystem::path const& fs_src) override {
-            return nullptr;
-        }
-        std::unique_ptr<ITexture> CreateTexture(int width, uint32_t height, const void* data) override {
-            return nullptr;
-        }
-        std::unique_ptr<IVertexBuffer> CreateVertexBuffer() override {
-            return nullptr;
-        }
-
         void Clear(float r, float g, float b, float a) override {
 
         }
         void SetViewport(int x, int y, uint32_t width, uint32_t height) override {
 
         }
-        void DrawTriangles(uint32_t vertex_count) override {
+
+        bool BeginFrame() override {
+            return false;
+        }
+
+        void EndFrame() override {
 
         }
 

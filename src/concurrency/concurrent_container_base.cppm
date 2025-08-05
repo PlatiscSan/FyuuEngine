@@ -30,4 +30,20 @@ export namespace concurrency {
         }
     };
 
+    template <class Reference, class GC>
+    struct LockedReference {
+        Reference& reference;
+        GC lock;
+
+        LockedReference(Reference& reference, GC&& lock)
+            : reference(reference), lock(std::move(lock)) {
+
+        }
+
+        Reference& Get() const noexcept {
+            return reference;
+        }
+
+    };
+
 }

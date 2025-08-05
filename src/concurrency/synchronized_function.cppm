@@ -1,6 +1,8 @@
 export module synchronized_function;
 import std;
 import defer;
+import concurrent_container_base;
+
 export namespace concurrency {
 
 	template <class>
@@ -68,23 +70,6 @@ export namespace concurrency {
 				return Locks(SynchronizedFunction::Lock(b.m_mutex), SynchronizedFunction::Lock(a.m_mutex));
 			}
 		}
-
-		template <class GC>
-		struct LockedReference {
-			Func& func;
-			GC lock;
-
-			LockedReference(Func& func, GC&& lock)
-				: func(func), lock(std::move(lock)) {
-
-			}
-
-			Func& Get() const noexcept {
-				return func;
-			}
-
-		};
-
 
 	public:
 		SynchronizedFunction() noexcept = default;
