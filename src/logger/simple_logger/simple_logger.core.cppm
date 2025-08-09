@@ -14,6 +14,7 @@ namespace logger::simple_logger {
 		using SinksMap = concurrency::ConcurrentHashMap<std::string, SinkPtr>;
 		using LogQueue = concurrency::CircularBuffer<LogEntity, 64u>;
 
+		std::jthread m_io_thread;
 		SinksMap* m_sinks = nullptr;
 		LogQueue* m_queue = nullptr;
 		std::atomic<std::binary_semaphore*> m_semaphore = nullptr;

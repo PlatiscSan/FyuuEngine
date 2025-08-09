@@ -10,7 +10,7 @@ module graphics:win32opengl;
 
 namespace graphics::api::opengl {
 #ifdef WIN32
-	static HDC CreateDeviceContext(HWND hwnd) {
+	HDC CreateDeviceContext(HWND hwnd) {
 		
 		HDC dc = GetDC(hwnd);
 		PIXELFORMATDESCRIPTOR pfd{};
@@ -34,7 +34,7 @@ namespace graphics::api::opengl {
 
 	}
 
-	static HGLRC CreateGLRenderContext(HDC device_context) {
+	HGLRC CreateGLRenderContext(HDC device_context) {
 		auto gl_render_context = wglCreateContext(device_context);
 		if (!gl_render_context) {
 			throw platform::Win32Exception();
@@ -42,17 +42,9 @@ namespace graphics::api::opengl {
 		return gl_render_context;
 	}
 
-	Win32OpenGLRenderDevice::Win32OpenGLRenderDevice(platform::Win32Window& window)
-		: m_hwnd(window.GetHWND()),
-		m_device_context(CreateDeviceContext(m_hwnd)),
-		m_gl_render_context(CreateGLRenderContext(m_device_context)) {
-		wglMakeCurrent(m_device_context, m_gl_render_context);
-
-	}
-
 	Win32OpenGLRenderDevice::~Win32OpenGLRenderDevice() noexcept {
 		wglMakeCurrent(nullptr, nullptr);
-		ReleaseDC(m_hwnd, m_device_context);
+		ReleaseDC(static_cast<platform::Win32Window*>(m_window)->GetHWND(), m_device_context);
 		wglDeleteContext(m_gl_render_context);
 	}
 
@@ -66,7 +58,7 @@ namespace graphics::api::opengl {
 	}
 
 	bool Win32OpenGLRenderDevice::BeginFrame() {
-		return !IsIconic(m_hwnd);
+		return !IsIconic(static_cast<platform::Win32Window*>(m_window)->GetHWND());
 	}
 
 	void Win32OpenGLRenderDevice::EndFrame() {

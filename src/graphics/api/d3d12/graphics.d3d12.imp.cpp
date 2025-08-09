@@ -33,22 +33,6 @@ static inline void ThrowIfFailed(HRESULT hr) {
 	}
 }
 
-static Microsoft::WRL::ComPtr<IDXGIFactory4> CreateFactory() {
-#ifndef NDEBUG
-
-	// Enable the D3D12 debug layer.
-	{
-		Microsoft::WRL::ComPtr<ID3D12Debug> debug_controller;
-		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_controller)))) {
-			debug_controller->EnableDebugLayer();
-		}
-	}
-#endif
-	Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
-	ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
-	return factory;
-}
-
 static Microsoft::WRL::ComPtr<IDXGIAdapter1> GetHardwareAdapter(
 	Microsoft::WRL::ComPtr<IDXGIFactory1> const& factory,
 	bool request_high_performance_adapter = true
@@ -109,263 +93,300 @@ static Microsoft::WRL::ComPtr<IDXGIAdapter1> GetHardwareAdapter(
 
 }
 
-static Microsoft::WRL::ComPtr<ID3D12Device> CreateDevice(
-	Microsoft::WRL::ComPtr<IDXGIFactory4> const& factory,
-	bool use_warp = false
-) {
 
-	Microsoft::WRL::ComPtr<ID3D12Device> device;
-
-	if (use_warp) {
-		Microsoft::WRL::ComPtr<IDXGIAdapter> warp_adapter;
-		ThrowIfFailed(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp_adapter)));
-
-		ThrowIfFailed(D3D12CreateDevice(
-			warp_adapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&device)
-		));
+static inline void Error(core::LoggerPtr const& logger, std::string_view error_message, std::source_location const& src = std::source_location::current()) {
+	if (logger) {
+		logger->Error(src, "DirectX12 device error, {}", error_message);
 	}
-	else {
-		Microsoft::WRL::ComPtr<IDXGIAdapter1> hardware_adapter = GetHardwareAdapter(factory);
-
-		ThrowIfFailed(D3D12CreateDevice(
-			hardware_adapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			IID_PPV_ARGS(&device)
-		));
-	}
-
-#ifndef NDEBUG
-
-	// Enable the D3D12 debug layer.
-	{
-		Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue;
-		device->QueryInterface(IID_PPV_ARGS(&info_queue));
-		info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-		info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-		info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-	}
-#endif
-
-	return device;
-
-}
-
-static Microsoft::WRL::ComPtr<ID3D12CommandQueue> CreateCommandQueue(Microsoft::WRL::ComPtr<ID3D12Device> const& device) {
-
-	Microsoft::WRL::ComPtr<ID3D12CommandQueue> command_queue;
-
-	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-	queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-
-	ThrowIfFailed(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&command_queue)));
-
-	return command_queue;
-
-}
-
-static Microsoft::WRL::ComPtr<IDXGISwapChain3> CreateSwapChain(
-	HWND hwnd,
-	Microsoft::WRL::ComPtr<IDXGIFactory4> const& factory,
-	Microsoft::WRL::ComPtr<ID3D12CommandQueue> const& command_queue,
-	std::uint32_t frame_count = 2u
-) {
-
-	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc{};
-	swap_chain_desc.BufferCount = frame_count;
-	swap_chain_desc.Width = 0;
-	swap_chain_desc.Height = 0;
-	swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	swap_chain_desc.SampleDesc.Count = 1;
-	swap_chain_desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-
-	Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
-	Microsoft::WRL::ComPtr<IDXGISwapChain3> swap_chain3;
-	ThrowIfFailed(factory->CreateSwapChainForHwnd(
-		command_queue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
-		hwnd,
-		&swap_chain_desc,
-		nullptr,
-		nullptr,
-		&swap_chain
-	));
-
-
-	ThrowIfFailed(swap_chain.As(&swap_chain3));
-	swap_chain3->SetMaximumFrameLatency(frame_count);
-
-	return swap_chain3;
-
-}
-
-static Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateRTVHeap(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	std::uint32_t frame_count = 2u
-) {
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap;
-	D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc{};
-	rtv_heap_desc.NumDescriptors = frame_count;
-	rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	ThrowIfFailed(device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&rtv_heap)));
-
-	return rtv_heap;
-}
-
-static std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> GetRenderTargetDescriptors(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& rtv_heap
-) {
-
-	D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = rtv_heap->GetDesc();
-	if (rtv_heap_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_RTV) {
-		throw std::invalid_argument("Not RTV heap");
-	}
-
-	std::uint32_t increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> handles(rtv_heap_desc.NumDescriptors);
-	D3D12_CPU_DESCRIPTOR_HANDLE handle = rtv_heap->GetCPUDescriptorHandleForHeapStart();
-	for (std::uint32_t i = 0; i < rtv_heap_desc.NumDescriptors; ++i, handle.ptr += increment) {
-		handles[i] = handle;
-	}
-
-	return handles;
-
-}
-
-static std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> CreateFrameResource(
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& rtv_heap,
-	Microsoft::WRL::ComPtr<IDXGISwapChain3> const& swap_chain,
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	UINT m_rtv_descriptor_size,
-	std::uint32_t frame_count = 2u
-) {
-
-	std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> render_targets(frame_count, nullptr);
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtv_heap->GetCPUDescriptorHandleForHeapStart());
-
-	for (std::uint32_t i = 0; i < frame_count; ++i) {
-		auto& render_target = render_targets[i];
-		ThrowIfFailed(swap_chain->GetBuffer(i, IID_PPV_ARGS(&render_target)));
-		device->CreateRenderTargetView(render_target.Get(), nullptr, rtvHandle);
-		rtvHandle.Offset(1, m_rtv_descriptor_size);
-	}
-
-	return render_targets;
-
-}
-
-static Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(Microsoft::WRL::ComPtr<ID3D12Device> const& device) {
-	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> command_allocator;
-	ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)));
-	return command_allocator;
-}
-
-static Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> CreateCommandList(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> const& command_allocator
-) {
-	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list;
-	ThrowIfFailed(device->CreateCommandList(
-		0,
-		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		command_allocator.Get(),
-		nullptr,
-		IID_PPV_ARGS(&command_list)));
-	ThrowIfFailed(command_list->Close());
-	return command_list;
-}
-
-static Microsoft::WRL::ComPtr<ID3D12Fence> CreateFence(Microsoft::WRL::ComPtr<ID3D12Device> const& device) {
-	Microsoft::WRL::ComPtr<ID3D12Fence> fence;
-	ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-	return fence;
-}
-
-static HANDLE CreateFenceEvent() {
-	HANDLE fence_event = CreateEvent(nullptr, false, false, nullptr);
-	if (!fence_event) {
-		throw std::runtime_error("Fence event creation failed");
-	}
-	return fence_event;
-}
-
-static Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateSRVHeap(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device, 
-	std::uint32_t count = 128u
-) {
-
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srv_heap;
-	D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
-	srv_heap_desc.NumDescriptors = count;
-	srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ThrowIfFailed(device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&srv_heap)));
-
-	return srv_heap;
-
-}
-
-static std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> CreateRenderTargets(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	Microsoft::WRL::ComPtr<IDXGISwapChain3> const& swap_chain,
-	std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> const& render_target_descriptors,
-	std::size_t frame_count = 2u
-) {
-	std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> render_targets;
-	for (std::uint32_t i = 0; i < frame_count; ++i) {
-		Microsoft::WRL::ComPtr<ID3D12Resource> back_buffer;
-		swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffer));
-		device->CreateRenderTargetView(back_buffer.Get(), nullptr, render_target_descriptors[i]);
-		render_targets.emplace_back(std::move(back_buffer));
-	}
-	return render_targets;
-}
-
-static std::deque<graphics::api::d3d12::DescriptorHandle> GetDescriptorHandles(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& heap
-) {
-
-	D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
-	std::deque<graphics::api::d3d12::DescriptorHandle> handles;
-	std::uint32_t increment = device->GetDescriptorHandleIncrementSize(desc.Type);
-	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = heap->GetCPUDescriptorHandleForHeapStart();
-
-	D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = { 0 };
-	bool is_shader_visible = (desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) != 0;
-
-	if (is_shader_visible) {
-		gpu_handle = heap->GetGPUDescriptorHandleForHeapStart();
-	}
-
-	for (std::uint32_t i = 0; i < desc.NumDescriptors; ++i) {
-		handles.emplace_back(graphics::api::d3d12::DescriptorHandle{ cpu_handle, gpu_handle });
-		cpu_handle.ptr += increment;
-		if (is_shader_visible) {
-			gpu_handle.ptr += increment;
-		}
-	}
-	return handles;
-
-}
-
-static std::vector<graphics::api::d3d12::FrameContext> CreateFrameContexts(
-	Microsoft::WRL::ComPtr<ID3D12Device> const& device, 
-	std::size_t frame_count = 2u
-) {
-	std::vector<graphics::api::d3d12::FrameContext> contexts;
-	for (std::size_t i = 0; i < frame_count; ++i) {
-		contexts.emplace_back(device);
-	}
-	return contexts;
 }
 
 namespace graphics::api::d3d12 {
+
+	Microsoft::WRL::ComPtr<IDXGIFactory4> CreateFactory() {
+#ifndef NDEBUG
+
+		// Enable the D3D12 debug layer.
+		{
+			Microsoft::WRL::ComPtr<ID3D12Debug> debug_controller;
+			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug_controller)))) {
+				debug_controller->EnableDebugLayer();
+			}
+		}
+#endif
+		Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
+		ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+		return factory;
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12Device> CreateDevice(
+		Microsoft::WRL::ComPtr<IDXGIFactory4> const& factory,
+		bool use_warp
+	) {
+
+		Microsoft::WRL::ComPtr<ID3D12Device> device;
+
+		if (use_warp) {
+			Microsoft::WRL::ComPtr<IDXGIAdapter> warp_adapter;
+			ThrowIfFailed(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp_adapter)));
+
+			ThrowIfFailed(D3D12CreateDevice(
+				warp_adapter.Get(),
+				D3D_FEATURE_LEVEL_11_0,
+				IID_PPV_ARGS(&device)
+			));
+		}
+		else {
+
+			Microsoft::WRL::ComPtr<IDXGIAdapter1> hardware_adapter = GetHardwareAdapter(factory);
+
+			ThrowIfFailed(D3D12CreateDevice(
+				hardware_adapter.Get(),
+				D3D_FEATURE_LEVEL_11_0,
+				IID_PPV_ARGS(&device)
+			));
+		}
+
+#ifndef NDEBUG
+
+		// Enable the D3D12 debug layer.
+		{
+			Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue;
+			device->QueryInterface(IID_PPV_ARGS(&info_queue));
+			info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+			info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+			info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+		}
+#endif
+
+		return device;
+
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12CommandQueue> CreateCommandQueue(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device
+	) {
+
+		Microsoft::WRL::ComPtr<ID3D12CommandQueue> command_queue;
+
+		D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+		queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+
+		ThrowIfFailed(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&command_queue)));
+
+		return command_queue;
+
+	}
+
+	Microsoft::WRL::ComPtr<IDXGISwapChain3> CreateSwapChain(
+		platform::Win32Window* window,
+		Microsoft::WRL::ComPtr<IDXGIFactory4> const& factory,
+		Microsoft::WRL::ComPtr<ID3D12CommandQueue> const& command_queue,
+		std::uint32_t frame_count
+	) {
+
+		if (!window) {
+			throw std::invalid_argument("null window pointer");
+		}
+
+		auto [width, height] = window->GetWidthAndHeight();
+
+		DXGI_SWAP_CHAIN_DESC1 swap_chain_desc{};
+		swap_chain_desc.BufferCount = frame_count;
+		swap_chain_desc.Width = width;
+		swap_chain_desc.Height = height;
+		swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		swap_chain_desc.SampleDesc.Count = 1;
+		swap_chain_desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+
+		Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
+		Microsoft::WRL::ComPtr<IDXGISwapChain3> swap_chain3;
+		ThrowIfFailed(factory->CreateSwapChainForHwnd(
+			command_queue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+			window->GetHWND(),
+			&swap_chain_desc,
+			nullptr,
+			nullptr,
+			&swap_chain
+		));
+
+
+		ThrowIfFailed(swap_chain.As(&swap_chain3));
+		swap_chain3->SetMaximumFrameLatency(frame_count);
+
+		return swap_chain3;
+
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateRTVHeap(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		std::uint32_t frame_count
+	) {
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap;
+		D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc{};
+		rtv_heap_desc.NumDescriptors = frame_count;
+		rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+		rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+		ThrowIfFailed(device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&rtv_heap)));
+
+		return rtv_heap;
+	}
+
+	std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> GetRenderTargetDescriptors(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& rtv_heap
+	) {
+
+		D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = rtv_heap->GetDesc();
+		if (rtv_heap_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_RTV) {
+			throw std::invalid_argument("Not RTV heap");
+		}
+
+		std::uint32_t increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> handles(rtv_heap_desc.NumDescriptors);
+		D3D12_CPU_DESCRIPTOR_HANDLE handle = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+		for (std::uint32_t i = 0; i < rtv_heap_desc.NumDescriptors; ++i, handle.ptr += increment) {
+			handles[i] = handle;
+		}
+
+		return handles;
+
+	}
+
+	std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> CreateFrameResource(
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& rtv_heap,
+		Microsoft::WRL::ComPtr<IDXGISwapChain3> const& swap_chain,
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		UINT m_rtv_descriptor_size,
+		std::uint32_t frame_count
+	) {
+
+		std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> render_targets(frame_count, nullptr);
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtv_heap->GetCPUDescriptorHandleForHeapStart());
+
+		for (std::uint32_t i = 0; i < frame_count; ++i) {
+			auto& render_target = render_targets[i];
+			ThrowIfFailed(swap_chain->GetBuffer(i, IID_PPV_ARGS(&render_target)));
+			device->CreateRenderTargetView(render_target.Get(), nullptr, rtvHandle);
+			rtvHandle.Offset(1, m_rtv_descriptor_size);
+		}
+
+		return render_targets;
+
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device
+	) {
+		Microsoft::WRL::ComPtr<ID3D12CommandAllocator> command_allocator;
+		ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)));
+		return command_allocator;
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> CreateCommandList(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		Microsoft::WRL::ComPtr<ID3D12CommandAllocator> const& command_allocator
+	) {
+		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list;
+		ThrowIfFailed(device->CreateCommandList(
+			0,
+			D3D12_COMMAND_LIST_TYPE_DIRECT,
+			command_allocator.Get(),
+			nullptr,
+			IID_PPV_ARGS(&command_list)));
+		ThrowIfFailed(command_list->Close());
+		return command_list;
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12Fence> CreateFence(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device
+	) {
+		Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+		ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+		return fence;
+	}
+
+	HANDLE CreateFenceEvent() {
+		HANDLE fence_event = CreateEvent(nullptr, false, false, nullptr);
+		if (!fence_event) {
+			throw std::runtime_error("Fence event creation failed");
+		}
+		return fence_event;
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateSRVHeap(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		std::uint32_t count
+	) {
+
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srv_heap;
+		D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
+		srv_heap_desc.NumDescriptors = count;
+		srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+		srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		ThrowIfFailed(device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&srv_heap)));
+
+		return srv_heap;
+
+	}
+
+	std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> CreateRenderTargets(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		Microsoft::WRL::ComPtr<IDXGISwapChain3> const& swap_chain,
+		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> const& render_target_descriptors,
+		std::size_t frame_count
+	) {
+		std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> render_targets;
+		for (std::uint32_t i = 0; i < frame_count; ++i) {
+			Microsoft::WRL::ComPtr<ID3D12Resource> back_buffer;
+			swap_chain->GetBuffer(i, IID_PPV_ARGS(&back_buffer));
+			device->CreateRenderTargetView(back_buffer.Get(), nullptr, render_target_descriptors[i]);
+			render_targets.emplace_back(std::move(back_buffer));
+		}
+		return render_targets;
+	}
+
+	std::deque<graphics::api::d3d12::DescriptorHandle> GetDescriptorHandles(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& heap
+	) {
+
+		D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
+		std::deque<graphics::api::d3d12::DescriptorHandle> handles;
+		std::uint32_t increment = device->GetDescriptorHandleIncrementSize(desc.Type);
+		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = heap->GetCPUDescriptorHandleForHeapStart();
+
+		D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = { 0 };
+		bool is_shader_visible = (desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) != 0;
+
+		if (is_shader_visible) {
+			gpu_handle = heap->GetGPUDescriptorHandleForHeapStart();
+		}
+
+		for (std::uint32_t i = 0; i < desc.NumDescriptors; ++i) {
+			handles.emplace_back(graphics::api::d3d12::DescriptorHandle{ cpu_handle, gpu_handle });
+			cpu_handle.ptr += increment;
+			if (is_shader_visible) {
+				gpu_handle.ptr += increment;
+			}
+		}
+		return handles;
+
+	}
+
+	std::vector<graphics::api::d3d12::FrameContext> CreateFrameContexts(
+		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
+		std::size_t frame_count
+	) {
+		std::vector<graphics::api::d3d12::FrameContext> contexts;
+		for (std::size_t i = 0; i < frame_count; ++i) {
+			contexts.emplace_back(device);
+		}
+		return contexts;
+	}
+
 
 	FrameContext::FrameContext(Microsoft::WRL::ComPtr<ID3D12Device> const& device)
 		: command_allocator(CreateCommandAllocator(device)),
@@ -414,48 +435,43 @@ namespace graphics::api::d3d12 {
 		m_render_targets.clear();
 	}
 
-	D3D12RenderDevice::D3D12RenderDevice(platform::Win32Window& window, bool use_warp, std::uint32_t frame_count)
-		: m_window(&window),
-		m_factory(CreateFactory()),
-		m_device(CreateDevice(m_factory, use_warp)),
-		m_rtv_heap(CreateRTVHeap(m_device, frame_count)),
-		m_rtv_descriptors(GetRenderTargetDescriptors(m_device, m_rtv_heap)),
-		m_srv_heap(CreateSRVHeap(m_device)),
-		m_descriptor_handles(GetDescriptorHandles(m_device, m_srv_heap)),
-		m_command_queue(CreateCommandQueue(m_device)),
-		m_frame_contexts(CreateFrameContexts(m_device, frame_count)),
-		m_command_list(CreateCommandList(m_device, m_frame_contexts[0].command_allocator)),
-		m_fence(CreateFence(m_device)),
-		m_fence_event(CreateFenceEvent()),
-		m_swap_chain(CreateSwapChain(m_window->GetHWND(), m_factory, m_command_queue, frame_count)),
-		m_swap_chain_waitable_object(m_swap_chain->GetFrameLatencyWaitableObject()),
-		m_render_targets(CreateRenderTargets(m_device, m_swap_chain, m_rtv_descriptors, frame_count)),
-		m_msg_processor_uuid(
-			window.AttachMsgProcessor(
-				[this](HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) -> LRESULT {
-					switch (msg) {
-					case WM_SIZE:
-						if (m_device && wparam != SIZE_MINIMIZED) {
-							WaitForLastSubmittedFrame();
-							CleanUpRenderTargets();
-							m_swap_chain->ResizeBuffers(0, (UINT)LOWORD(lparam), (UINT)HIWORD(lparam), DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
-							m_render_targets = CreateRenderTargets(m_device, m_swap_chain, m_rtv_descriptors, m_frame_contexts.size());
-						}
-					default:
-						return 0;
-					}
+	LRESULT D3D12RenderDevice::HandleResize(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+
+		try {
+			switch (msg) {
+			case WM_SIZE:
+				if (m_device && wparam != SIZE_MINIMIZED) {
+					WaitForLastSubmittedFrame();
+					CleanUpRenderTargets();
+					ThrowIfFailed(
+						m_swap_chain->ResizeBuffers(
+							0,
+							(UINT)LOWORD(lparam),
+							(UINT)HIWORD(lparam),
+							DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
+						)
+					);
+					m_render_targets = CreateRenderTargets(m_device, m_swap_chain, m_rtv_descriptors, m_frame_contexts.size());
 				}
-			)
-		),
-		m_fence_last_signaled_value(0u),
-		m_frame_index(0u) {
+				break;
+			default:
+				break;
+			}
+		}
+		catch (_com_error const& ex) {
+			auto error_message = platform::TStringToString(ex.ErrorMessage());
+			Error(m_logger, error_message);
+		}
+
+		return 0;
 
 	}
+
 
 	D3D12RenderDevice::~D3D12RenderDevice() noexcept {
 		WaitForLastSubmittedFrame();
 		m_render_targets.clear();
-		m_window->DetachMsgProcessor(m_msg_processor_uuid);
+		static_cast<platform::Win32Window*>(m_window)->DetachMsgProcessor(m_msg_processor_uuid);
 		CloseHandle(m_fence_event);
 	}
 
@@ -530,7 +546,7 @@ namespace graphics::api::d3d12 {
 	bool D3D12RenderDevice::BeginFrame() {
 
 		// Handle window screen locked
-		if ((m_swap_chain_occluded && m_swap_chain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) || ::IsIconic(m_window->GetHWND())) {
+		if ((m_swap_chain_occluded && m_swap_chain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) || ::IsIconic(static_cast<platform::Win32Window*>(m_window)->GetHWND())) {
 			m_swap_chain_occluded = true;
 			return false; // notify we should skip this frame
 		}

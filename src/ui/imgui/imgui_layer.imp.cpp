@@ -2,7 +2,7 @@ module imgui_layer;
 import std;
 
 namespace ui::imgui {
-	core::ILayer& CreateImGUILayer(platform::IWindow& main_window, graphics::IRenderDevice& main_device) {
+	core::ILayer& CreateImGUILayer(platform::IWindow& main_window, graphics::BaseRenderDevice& main_device) {
 #ifdef WIN32
 		auto& window = static_cast<platform::Win32Window&>(main_window);
 		switch (main_device.GetAPI()) {
@@ -17,7 +17,9 @@ namespace ui::imgui {
 			return opengl_layer;
 		}
 		case graphics::API::Vulkan:
-			break;
+		{
+
+		}
 		case graphics::API::DirectX12:
 		{
 			static api::d3d12::D3D12ImGUILayer d3d12_layer(

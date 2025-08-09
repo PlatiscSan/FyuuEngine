@@ -55,14 +55,12 @@ namespace logger::simple_logger {
 		}
 	}
 
-	LoggingCore::LoggingCore() {
-
-		std::jthread io_thread(
+	LoggingCore::LoggingCore()
+		: m_io_thread(
 			[this](std::stop_token const& token) {
 				IOWorker(token);
 			}
-		);
-		io_thread.detach();
+		) {
 
 		std::binary_semaphore* semaphore = nullptr;
 		do {

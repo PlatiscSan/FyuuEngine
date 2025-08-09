@@ -5,5 +5,5 @@ export import :win32opengl;
 #endif // WIN32
 
 namespace ui::imgui {
-	export core::ILayer& CreateImGUILayer(platform::IWindow& main_window, graphics::IRenderDevice& main_device);
+	export core::ILayer& CreateImGUILayer(platform::IWindow& main_window, graphics::BaseRenderDevice& main_device);
 }

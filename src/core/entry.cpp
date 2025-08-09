@@ -14,6 +14,7 @@ import imgui_layer;
 static concurrency::ConcurrentVector<util::PointerWrapper<core::ILayer>> s_layers;
 static concurrency::CircularBuffer<std::function<void()>, 32u> s_tasks;
 static platform::IWindow* s_main_window;
+static std::optional<logger::simple_logger::Logger> s_main_logger;
 static std::optional<logger::simple_logger::FileSink> s_main_sink;
 static bool s_quit = false;
 
@@ -49,13 +50,12 @@ int main(int argc, char** argv) {
 
 	s_main_sink.emplace(log_path.value_or("./log/application.log"));
 	logger::simple_logger::LoggingCore::Instance()->RegisterSink("application", &s_main_sink.value());
-	logger::simple_logger::Logger main_logger("application", true);
+	s_main_logger.emplace("application", true);
 
-#ifdef WIN32
+
 	/*
-	*	Win32 entrance;
+	*	initialize window
 	*/
-
 
 	util::Subscriber* close_sub;
 	ImGui_ImplWin32_EnableDpiAwareness();
@@ -70,7 +70,8 @@ int main(int argc, char** argv) {
 		auto message_bus = main_window.GetMessageBus();
 		close_sub = message_bus->Subscribe<platform::WindowCloseEvent>(OnMainWindowClosed);
 
-		graphics::IRenderDevice& renderer = graphics::CreateMainRenderDevice(
+		graphics::BaseRenderDevice& renderer = graphics::CreateMainRenderDevice(
+			&s_main_logger.value(),
 			main_window,
 			[&api]() -> graphics::API {
 				if (api == "d3d12") {
@@ -92,7 +93,7 @@ int main(int argc, char** argv) {
 		s_layers.emplace_back(&imgui_layer);
 
 		main_window.Show();
-		main_logger.Info(std::source_location::current(), "Application is now running");
+		s_main_logger->Info(std::source_location::current(), "Application is now running");
 		do {
 			main_window.ProcessEvents();
 			// Begin frame
@@ -128,10 +129,16 @@ int main(int argc, char** argv) {
 
 		return 0;
 	}
+#ifdef WIN32
 	catch (platform::Win32Exception const& ex) {
-		main_logger.Fatal(std::source_location::current(), "{}", ex.what());
+		s_main_logger->Fatal(std::source_location::current(), "{}", ex.what());
 		MessageBox(nullptr, ex.What(), TEXT("Fatal error"), MB_ICONERROR | MB_OK);
 		return -1;
 	}
 #endif // WIN32
+	catch (std::exception const& ex) {
+		s_main_logger->Fatal(std::source_location::current(), "{}", ex.what());
+		return -1;
+	}
+
 }

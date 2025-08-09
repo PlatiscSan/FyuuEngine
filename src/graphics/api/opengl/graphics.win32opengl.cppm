@@ -12,14 +12,24 @@ import std;
 
 namespace graphics::api::opengl {
 #ifdef WIN32
-	export class Win32OpenGLRenderDevice : public IRenderDevice {
+	extern HDC CreateDeviceContext(HWND hwnd);
+	extern HGLRC CreateGLRenderContext(HDC device_context);
+
+	export class Win32OpenGLRenderDevice : public BaseRenderDevice {
 	private:
-		HWND m_hwnd;
 		HDC m_device_context;
 		HGLRC m_gl_render_context;
+		core::LoggerPtr m_logger;
 
 	public:
-		Win32OpenGLRenderDevice(platform::Win32Window& window);
+		template <std::convertible_to<core::LoggerPtr> Logger>
+		Win32OpenGLRenderDevice(Logger&& logger, platform::Win32Window& window) 
+			: BaseRenderDevice(std::forward<Logger>(logger), window),
+			m_device_context(CreateDeviceContext(window.GetHWND())),
+			m_gl_render_context(CreateGLRenderContext(m_device_context)) {
+			wglMakeCurrent(m_device_context, m_gl_render_context);
+		}
+
 		~Win32OpenGLRenderDevice() noexcept override;
 
 		void Clear(float r, float g, float b, float a) override;

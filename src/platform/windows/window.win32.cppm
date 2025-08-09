@@ -19,10 +19,25 @@ namespace platform {
 
 	extern concurrency::SynchronizedFunction<boost::uuids::uuid()> GenerateUUID;
 
+#ifdef UNICODE
+	export std::string TStringToString(std::wstring_view str);
+	export std::wstring StringToTString(std::string_view str);
+#else
+	export inline std::string_view TStringToString(std::string_view str) {
+		return str;
+	}
+	export inline std::string_view StringToTString(std::string_view str) {
+		return str;
+	}
+#endif // UNICODE
+
+
 	export class Win32Exception : public std::exception {
 	private:
 		std::vector<TCHAR> m_error_message;
-		std::string m_multi_bytes_error_message;
+#ifdef UNICODE
+		mutable std::string m_multi_bytes_error_message;
+#endif // UNICODE
 
 	public:
 		explicit Win32Exception(DWORD error_code = ::GetLastError());

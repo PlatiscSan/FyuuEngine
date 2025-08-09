@@ -121,12 +121,19 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
+if( ${Vulkan_VERSION} VERSION_LESS "1.3.256" )
+  message( FATAL_ERROR "Minimum required Vulkan version for C++ modules is 1.3.256. "
+           "Found ${Vulkan_VERSION}."
+  )
+endif()
+
 add_executable(MyApp)
 recursive_group_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" MyApp)
 
 target_sources(MyApp 
     PRIVATE 
         ${all_files}
+        ${Vulkan_INCLUDE_DIR}/vulkan/vulkan.cppm
 )
 
 target_link_libraries(MyApp 
@@ -138,7 +145,7 @@ target_link_libraries(MyApp
         yaml-cpp::yaml-cpp
         nlohmann_json::nlohmann_json
         glad::glad
-        ${Vulkan_LIBRARIES}
+        Vulkan::Vulkan
 )
 
 target_include_directories(MyApp 
