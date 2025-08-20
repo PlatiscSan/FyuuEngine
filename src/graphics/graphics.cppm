@@ -3,8 +3,8 @@ import std;
 export import :interface;
 
 #ifdef WIN32
-export import :d3d12;
-export import :win32vulkan;
+export import :d3d12_shader;
+export import :win32vulkan_renderer;
 export import :win32opengl;
 #endif // WIN32
 
@@ -18,12 +18,18 @@ namespace graphics {
 			throw std::invalid_argument("Meta can only run on apple");
 		case graphics::API::OpenGL:
 		{
-			static api::opengl::Win32OpenGLRenderDevice opengl_device(std::forward<Logger>(logger), window);
-			return opengl_device;
+			//static api::opengl::Win32OpenGLRenderDevice opengl_device(std::forward<Logger>(logger), window);
+			//return opengl_device;
 		}
 		case graphics::API::Vulkan:
 		{
-
+			//static api::vulkan::Win32VulkanRenderDevice vulkan_device(
+			//	std::forward<Logger>(logger), 
+			//	window, 
+			//	nullptr,
+			//	std::vector<char const*>({ vk::KHRSurfaceExtensionName, vk::KHRWin32SurfaceExtensionName })
+			//);
+			//return vulkan_device;
 		}
 		case graphics::API::DirectX12:
 		{
