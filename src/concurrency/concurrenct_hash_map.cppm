@@ -581,6 +581,10 @@ export namespace concurrency {
 				m_bucket_lock.unlock();
 			}
 
+			mapped_type& Get() const noexcept {
+				return *m_mapped;
+			}
+
 			operator mapped_type& () const noexcept {
 				return *m_mapped;
 			}
