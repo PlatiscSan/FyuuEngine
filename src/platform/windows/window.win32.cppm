@@ -68,6 +68,12 @@ namespace platform {
 			std::uint32_t height
 		);
 
+		void OnDestroy() noexcept;
+		void OnResize(LPARAM lparam) noexcept;
+		void OnKeyDown(WPARAM wparam, LPARAM lparam) noexcept;
+		void OnMouseButtonDown(UINT msg, LPARAM lparam) noexcept;
+		void OnMouseButtonUp(UINT msg, LPARAM lparam) noexcept;
+
 		LRESULT DefaultHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept;
 
 	public:
@@ -90,7 +96,6 @@ namespace platform {
 			return uuid;
 		}
 
-		[[noreturn]]
 		void DetachBackMsgProcessor();
 
 		void DetachMsgProcessor(boost::uuids::uuid const& uuid);
@@ -99,7 +104,6 @@ namespace platform {
 
 		void Hide() override;
 
-		[[noreturn]]
 		void ProcessEvents() override;
 
 		void SetTitle(std::string_view title) override;

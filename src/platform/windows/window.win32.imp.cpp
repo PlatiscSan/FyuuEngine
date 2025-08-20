@@ -174,6 +174,10 @@ namespace platform {
 				auto const& [_, handler] = (*iter);
 				LRESULT result = handler(hwnd, msg, wparam, lparam);
 				if (result != 0) {
+					/*
+					*	When the result is not zero, it indicates that the message has been handled.
+					*	Returning the result allows the message to be processed by the caller.
+					*/
 					return result;
 				}
 			}
@@ -235,101 +239,120 @@ namespace platform {
 
 	}
 
+	void Win32Window::OnDestroy() noexcept {
+		WindowCloseEvent window_close(this);
+		m_message_bus.Publish(window_close);
+	}
+
+	void Win32Window::OnResize(LPARAM lparam) noexcept {
+		UINT width = LOWORD(lparam);
+		UINT height = HIWORD(lparam);
+		WindowResizeEvent window_resize(this, width, height);
+		m_message_bus.Publish(window_resize);
+	}
+
+	void Win32Window::OnKeyDown(WPARAM wparam, LPARAM lparam) noexcept {
+		bool repeat = (lparam & 0x40000000) != 0;
+		KeyEvent::Action action = repeat ?
+			KeyEvent::Action::Repeat : KeyEvent::Action::Press;
+		KeyEvent key(this, static_cast<int>(wparam), action);
+		m_message_bus.Publish(key);
+	}
+
+	void Win32Window::OnMouseButtonDown(UINT msg, LPARAM lparam) noexcept {
+		MouseButtonEvent::Button button = MouseButtonEvent::Button::Left;
+		if (msg == WM_RBUTTONDOWN) {
+			button = MouseButtonEvent::Button::Right;
+		}
+		if (msg == WM_MBUTTONDOWN) {
+			button = MouseButtonEvent::Button::Middle;
+		}
+
+		int x = GET_X_LPARAM(lparam);
+		int y = GET_Y_LPARAM(lparam);
+
+		MouseButtonEvent mouse_button(
+			this,
+			static_cast<double>(x),
+			static_cast<double>(y),
+			button,
+			MouseButtonEvent::Action::Press
+		);
+
+		m_message_bus.Publish(mouse_button);
+	}
+
+	void Win32Window::OnMouseButtonUp(UINT msg, LPARAM lparam) noexcept {
+
+		MouseButtonEvent::Button button = MouseButtonEvent::Button::Left;
+		if (msg == WM_RBUTTONUP) {
+			button = MouseButtonEvent::Button::Right;
+		}
+		if (msg == WM_MBUTTONUP) {
+			button = MouseButtonEvent::Button::Middle;
+		}
+
+		int x = GET_X_LPARAM(lparam);
+		int y = GET_Y_LPARAM(lparam);
+
+		MouseButtonEvent mouse_button(
+			this,
+			static_cast<double>(x),
+			static_cast<double>(y),
+			button,
+			MouseButtonEvent::Action::Release
+		);
+
+		m_message_bus.Publish(mouse_button);
+
+	}
+
 	LRESULT Win32Window::DefaultHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
+
 		switch (msg) {
 		case WM_CLOSE:
 			DestroyWindow(hwnd);
 			break;
 		case WM_DESTROY:
-		{
-			WindowCloseEvent window_close(this);
-			m_message_bus.Publish(window_close);
+			OnDestroy();
 			break;
-		}
 		case WM_SIZE:
-		{
-			UINT width = LOWORD(lparam);
-			UINT height = HIWORD(lparam);
-			WindowResizeEvent window_resize(this, width, height);
-			m_message_bus.Publish(window_resize);
+			OnResize(lparam);
 			break;
-		}
 		case WM_KEYDOWN:
 		case WM_SYSKEYDOWN:
-		{
-			bool repeat = (lparam & 0x40000000) != 0;
-			KeyEvent::Action action = repeat ?
-				KeyEvent::Action::Repeat : KeyEvent::Action::Press;
-			KeyEvent key(this, static_cast<int>(wparam), action);
-			m_message_bus.Publish(key);
+			OnKeyDown(wparam, lparam);
 			break;
-		}
 
 		case WM_LBUTTONDOWN:
 		case WM_RBUTTONDOWN:
 		case WM_MBUTTONDOWN:
-		{
-			MouseButtonEvent::Button button = MouseButtonEvent::Button::Left;
-			if (msg == WM_RBUTTONDOWN) {
-				button = MouseButtonEvent::Button::Right;
-			}
-			if (msg == WM_MBUTTONDOWN) {
-				button = MouseButtonEvent::Button::Middle;
-			}
-
-			int x = GET_X_LPARAM(lparam);
-			int y = GET_Y_LPARAM(lparam);
-
-			MouseButtonEvent mouse_button(
-				this,
-				static_cast<double>(x),
-				static_cast<double>(y),
-				button,
-				MouseButtonEvent::Action::Press
-			);
-
-			m_message_bus.Publish(mouse_button);
+			OnMouseButtonDown(msg, lparam);
 			break;
-		}
 
 		case WM_LBUTTONUP:
 		case WM_RBUTTONUP:
 		case WM_MBUTTONUP:
-		{
-			MouseButtonEvent::Button button = MouseButtonEvent::Button::Left;
-			if (msg == WM_RBUTTONUP) {
-				button = MouseButtonEvent::Button::Right;
-			}
-			if (msg == WM_MBUTTONUP) {
-				button = MouseButtonEvent::Button::Middle;
-			}
-
-			int x = GET_X_LPARAM(lparam);
-			int y = GET_Y_LPARAM(lparam);
-
-			MouseButtonEvent mouse_button(
-				this,
-				static_cast<double>(x),
-				static_cast<double>(y),
-				button,
-				MouseButtonEvent::Action::Release
-			);
-
-			m_message_bus.Publish(mouse_button);
+			OnMouseButtonUp(msg, lparam);
 			break;
-		}
 
 		default:
-			break;
+			return 0;
 		}
 
-		return 0;
+		return 1;
 
 	}
 
 	Win32Window::Win32Window(std::string_view title, std::uint32_t width, std::uint32_t height)
 		: m_msg_processors(
-			{ {GenerateUUID(), [this](HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {return DefaultHandler(hwnd,msg,wparam,lparam); }}
+			{
+				{
+					GenerateUUID(),
+					[this](HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) { 
+						return DefaultHandler(hwnd,msg,wparam,lparam);
+					}
+				}
 			}
 		),
 		m_message_bus(),
@@ -342,8 +365,6 @@ namespace platform {
 		UnregisterClass(m_class_name.data(), GetModuleHandle(nullptr));
 	}
 
-
-	[[noreturn]]
 	void Win32Window::DetachBackMsgProcessor() {
 		if (m_msg_processors.size() > 1u) {
 			// if size() == 1, only default handler in the vector, then do nothing.
