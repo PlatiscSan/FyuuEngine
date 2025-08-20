@@ -180,9 +180,8 @@ export namespace util {
 
 			auto id = m_next_id.fetch_add(1u, std::memory_order::acq_rel);
 
-			auto sub_map_with_lock = m_message_registries[typeid(std::decay_t<Message>)];
-			SubscriberMap& sub_map = sub_map_with_lock;
-			return sub_map.try_emplace(
+			auto sub_map = m_message_registries[typeid(std::decay_t<Message>)];
+			return sub_map.Get().try_emplace(
 				id,
 				id,
 				std::forward<Callable>(callable)
