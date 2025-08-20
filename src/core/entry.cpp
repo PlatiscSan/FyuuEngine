@@ -24,6 +24,30 @@ static void OnMainWindowClosed(platform::WindowCloseEvent const& e) {
 	}
 }
 
+static void OnMainWindowResized(platform::WindowResizeEvent const& e) {
+	//if (s_main_window == e.source) {
+	//	auto layers = s_layers.LockedModifier();
+	//	for (auto& layer : layers) {
+	//		layer->OnResize(e.width, e.height);
+	//	}
+	//}
+}
+
+static graphics::API GetAPIFromString(std::string const& api) {
+	if (api == "d3d12") {
+		return graphics::API::DirectX12;
+	}
+	else if (api == "vulkan") {
+		return graphics::API::Vulkan;
+	}
+	else if (api == "opengl") {
+		return graphics::API::OpenGL;
+	}
+	else {
+		return graphics::API::Unknown;
+	}
+}
+
 int main(int argc, char** argv) {
 
 	/*
@@ -58,38 +82,31 @@ int main(int argc, char** argv) {
 	*/
 
 	util::Subscriber* close_sub;
+	util::Subscriber* resize_sub;
+
+#ifdef WIN32
 	ImGui_ImplWin32_EnableDpiAwareness();
 	float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
+
+	std::uint32_t width = static_cast<std::uint32_t>(1280 * main_scale);
+	std::uint32_t height = std::uint32_t(800 * main_scale);
+
+#endif // WIN32
+
 	try {
-		platform::IWindow& main_window = platform::CreateMainWindow(
-			"FyuuEngine",
-			static_cast<std::uint32_t>(1280 * main_scale),
-			static_cast<std::uint32_t>(800 * main_scale)
-		);
+		platform::IWindow& main_window = platform::CreateMainWindow("FyuuEngine", width, height);
 		s_main_window = &main_window;
 		auto message_bus = main_window.GetMessageBus();
 		close_sub = message_bus->Subscribe<platform::WindowCloseEvent>(OnMainWindowClosed);
+		resize_sub = message_bus->Subscribe<platform::WindowResizeEvent>(OnMainWindowResized);
 
 		graphics::BaseRenderDevice& renderer = graphics::CreateMainRenderDevice(
 			&s_main_logger.value(),
 			main_window,
-			[&api]() -> graphics::API {
-				if (api == "d3d12") {
-					return graphics::API::DirectX12;
-				}
-				else if (api == "vulkan") {
-					return graphics::API::Vulkan;
-				}
-				else if (api == "opengl") {
-					return graphics::API::OpenGL;
-				}
-				else {
-					return graphics::API::Unknown;
-				}
-			}()
+			GetAPIFromString(api.value_or("unknown"))
 		);
 
-		core::ILayer& imgui_layer = ui::imgui::CreateImGUILayer(main_window, renderer);
+		ui::imgui::BaseIMGUILayer& imgui_layer = ui::imgui::CreateIMGUILayer(main_window, renderer);
 		s_layers.emplace_back(&imgui_layer);
 
 		main_window.Show();
@@ -125,6 +142,7 @@ int main(int argc, char** argv) {
 			}
 		} while (!s_quit);
 
+		message_bus->Unsubscribe(resize_sub);
 		message_bus->Unsubscribe(close_sub);
 
 		return 0;
