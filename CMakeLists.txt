@@ -167,5 +167,6 @@ if(WIN32)
         PRIVATE 
             WIN32_LEAN_AND_MEAN
     )
+    add_compile_definitions(VK_USE_PLATFORM_WIN32_KHR VK_ENABLE_BETA_EXTENSIONS)
 endif()
        
