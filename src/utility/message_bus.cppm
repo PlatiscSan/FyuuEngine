@@ -171,10 +171,29 @@ export namespace util {
 
 		MessageRegistryMap m_message_registries;
 
-		std::atomic<SubscriberID> m_next_id = 0;
+		std::atomic<SubscriberID> m_next_id;
 
 
 	public:
+		MessageBus()
+			: m_message_registries(),
+			m_next_id(0u) {
+
+		}
+
+		MessageBus(MessageBus&& other) noexcept
+			: m_message_registries(std::move(other.m_message_registries)),
+			m_next_id(m_next_id.exchange(0, std::memory_order::relaxed)) {
+		}
+
+		MessageBus& operator=(MessageBus&& other) noexcept {
+			if (this != &other) {
+				m_message_registries = std::move(other.m_message_registries);
+				m_next_id.store(other.m_next_id.load(std::memory_order::relaxed), std::memory_order::relaxed);
+			}
+			return *this;
+		}
+
 		template <class Message, class Callable>
 		Subscriber* Subscribe(Callable&& callable) {
 

@@ -1,3 +1,5 @@
+module;
+
 export module graphics;
 import std;
 export import :interface;
@@ -10,7 +12,12 @@ export import :win32opengl;
 
 namespace graphics {
 	export template <std::convertible_to<core::LoggerPtr> Logger>
-	BaseRenderDevice& CreateMainRenderDevice(Logger&&logger, platform::IWindow& main_window, API api) {
+	BaseRenderDevice& CreateMainRenderDevice(
+		Logger&& logger, 
+		platform::IWindow& main_window, 
+		API api, 
+		std::string_view app_name
+	) {
 #ifdef WIN32
 		auto& window = static_cast<platform::Win32Window&>(main_window);
 		switch (api) {
@@ -23,17 +30,26 @@ namespace graphics {
 		}
 		case graphics::API::Vulkan:
 		{
-			//static api::vulkan::Win32VulkanRenderDevice vulkan_device(
-			//	std::forward<Logger>(logger), 
-			//	window, 
-			//	nullptr,
-			//	std::vector<char const*>({ vk::KHRSurfaceExtensionName, vk::KHRWin32SurfaceExtensionName })
-			//);
-			//return vulkan_device;
+			static std::optional<api::vulkan::Win32VulkanRenderDevice> vulkan_device;
+			if (!vulkan_device) {
+				api::vulkan::Win32VulkanBuilder builder;
+				builder.SetApplicationName(app_name)
+					.SetEngineName("FyuuEngine")
+					.AddInstanceExtension(vk::KHRSurfaceExtensionName)
+					.AddInstanceExtension(vk::KHRWin32SurfaceExtensionName)
+					.AddDeviceExtension(vk::KHRSwapchainExtensionName)
+					.SetAllocator(nullptr)
+					.SetLogger(std::forward<Logger>(logger))
+					.SetWindow(&window)
+					.EnableValidationLayers()
+					.Build();
+				vulkan_device = builder.GetRenderDevice();
+			}
+			return *vulkan_device;
 		}
 		case graphics::API::DirectX12:
 		{
-			static api::d3d12::D3D12RenderDevice d3d12_device(std::forward<Logger>(logger), window);
+			static api::d3d12::D3D12RenderDevice d3d12_device(std::forward<Logger>(logger), window, false, 3u);
 			return d3d12_device;
 		}
 		default:

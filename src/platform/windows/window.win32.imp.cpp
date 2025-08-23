@@ -337,9 +337,15 @@ namespace platform {
 			break;
 
 		default:
+			/*
+			*	pass message to DefWindowProc()
+			*/
 			return 0;
 		}
 
+		/*
+		*	Do not pass message to DefWindowProc()
+		*/
 		return 1;
 
 	}
@@ -395,14 +401,11 @@ namespace platform {
 	void Win32Window::ProcessEvents() {
 
 		MSG msg{};
-		bool has_message;
-		do {
-			has_message = PeekMessage(&msg, m_hwnd, 0, 0, PM_REMOVE);
-			if (has_message) {
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
-			}
-		} while (has_message);
+		
+		while (PeekMessage(&msg, m_hwnd, 0, 0, PM_REMOVE)) {
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		};
 
 	}
 

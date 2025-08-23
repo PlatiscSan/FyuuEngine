@@ -836,7 +836,7 @@ export namespace concurrency {
 
 		ConcurrentHashMap& operator=(ConcurrentHashMap const& other) {
 
-			if (this != other) {
+			if (this != &other) {
 
 				auto this_lock = m_buckets_mutex.Lock();
 				for (auto& bucket : m_buckets) {
@@ -855,7 +855,7 @@ export namespace concurrency {
 
 		ConcurrentHashMap& operator=(ConcurrentHashMap&& other) noexcept {
 
-			if (this != other) {
+			if (this != &other) {
 
 				auto this_lock = m_buckets_mutex.Lock();
 				for (auto& bucket : m_buckets) {

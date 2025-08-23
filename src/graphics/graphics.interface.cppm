@@ -4,6 +4,7 @@ export module graphics:interface;
 import std;
 export import logger;
 export import window;
+export import message_bus;
 
 namespace graphics {
 
@@ -46,14 +47,33 @@ namespace graphics {
 	export class BaseRenderDevice {
 	protected:
 		core::LoggerPtr m_logger;
-		platform::IWindow* m_window;
+		platform::IWindow* m_window;		
+		util::MessageBus m_message_bus;
 
 	public:
 		template <std::convertible_to<core::LoggerPtr> Logger>
 		BaseRenderDevice(Logger&& logger, platform::IWindow& window)
 			: m_logger(std::forward<Logger>(logger)),
-			m_window(&window) {
+			m_window(&window),
+			m_message_bus() {
 
+		}
+
+		BaseRenderDevice(BaseRenderDevice const&) = delete;
+		BaseRenderDevice(BaseRenderDevice&& other) noexcept
+			: m_logger(std::move(other.m_logger)),
+			m_window(std::exchange(other.m_window, nullptr)),
+			m_message_bus(std::move(other.m_message_bus)) {
+		}
+
+		BaseRenderDevice& operator=(BaseRenderDevice const&) = delete;
+		BaseRenderDevice& operator=(BaseRenderDevice&& other) noexcept {
+			if (this != &other) {
+				m_logger = std::move(other.m_logger);
+				m_window = std::exchange(other.m_window, nullptr);
+				m_message_bus = std::move(other.m_message_bus);
+			}
+			return *this;
 		}
 
 		virtual ~BaseRenderDevice() = default;

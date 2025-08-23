@@ -63,10 +63,12 @@ int main(int argc, char** argv) {
 		node.Set("engine.API", "vulkan");
 #endif // WIN32
 		node.Set("engine.log_path", "./log/application.log");
+		node.Set("application.name", "FyuuEngine");
 		config.SaveAs("./config.yaml");
 	}
 	std::optional<std::string> api = node.Get<std::string>("engine.API");
 	std::optional<std::string> log_path = node.Get<std::string>("engine.log_path");
+	std::optional<std::string> app_name = node.Get<std::string>("application.name");
 
 	/*
 	*	initialize logger
@@ -94,7 +96,7 @@ int main(int argc, char** argv) {
 #endif // WIN32
 
 	try {
-		platform::IWindow& main_window = platform::CreateMainWindow("FyuuEngine", width, height);
+		platform::IWindow& main_window = platform::CreateMainWindow(*app_name, width, height);
 		s_main_window = &main_window;
 		auto message_bus = main_window.GetMessageBus();
 		close_sub = message_bus->Subscribe<platform::WindowCloseEvent>(OnMainWindowClosed);
@@ -103,7 +105,8 @@ int main(int argc, char** argv) {
 		graphics::BaseRenderDevice& renderer = graphics::CreateMainRenderDevice(
 			&s_main_logger.value(),
 			main_window,
-			GetAPIFromString(api.value_or("unknown"))
+			GetAPIFromString(api.value_or("unknown")),
+			*app_name
 		);
 
 		ui::imgui::BaseIMGUILayer& imgui_layer = ui::imgui::CreateIMGUILayer(main_window, renderer);

@@ -1,20 +1,35 @@
 export module collective_resource;
 import std;
 namespace util {
-	export template <class T>
+	export template <class T, class Collector>
 	class UniqueCollectiveResource final {
-	public:
-		using Collector = std::function<void(T)>;
-
 	private:
 		std::optional<T> m_rc;
 		Collector m_collector;
 
 	public:
-		template <std::convertible_to<T> CompatibleResource, std::convertible_to<Collector> CompatibleCollector>
-		UniqueCollectiveResource(CompatibleResource&& rc, CompatibleCollector&& collector)
+		constexpr UniqueCollectiveResource() noexcept
+			: m_rc(),
+			m_collector() {
+
+		}
+
+		constexpr UniqueCollectiveResource(std::nullptr_t) noexcept
+			: m_rc(),
+			m_collector() {
+
+		}
+
+		constexpr UniqueCollectiveResource(std::nullopt_t) noexcept
+			: m_rc(),
+			m_collector() {
+
+		}
+
+		template <std::convertible_to<T> CompatibleResource>
+		UniqueCollectiveResource(CompatibleResource&& rc, Collector const& collector = Collector())
 			: m_rc(std::in_place, std::forward<CompatibleResource>(rc)),
-			m_collector(std::forward<CompatibleCollector>(collector)) {
+			m_collector(collector) {
 		}
 
 		UniqueCollectiveResource(UniqueCollectiveResource const&) = delete;
@@ -23,7 +38,7 @@ namespace util {
 		UniqueCollectiveResource(UniqueCollectiveResource&& other) noexcept
 			: m_rc(std::move(other.m_rc)),
 			m_collector(std::move(other.m_collector)) {
-
+			other.m_rc.reset();
 		}
 
 		UniqueCollectiveResource& operator=(UniqueCollectiveResource&& other) noexcept {
@@ -33,6 +48,7 @@ namespace util {
 				}
 				m_rc = std::move(other.m_rc);
 				m_collector = std::move(other.m_collector);
+				other.m_rc.reset();
 			}
 			return *this;
 		}
