@@ -66,7 +66,7 @@ namespace graphics::api::vulkan {
 
 	}
 
-	vk::UniqueSurfaceKHR graphics::api::vulkan::Win32VulkanBuilder::CreateSurface(vk::Instance& instance) {
+	vk::UniqueSurfaceKHR graphics::api::vulkan::Win32VulkanRenderDeviceBuilder::CreateSurface(vk::Instance& instance) {
 		vk::Win32SurfaceCreateInfoKHR create_info{};
 		create_info.sType = vk::StructureType::eWin32SurfaceCreateInfoKHR;
 		create_info.hinstance = GetModuleHandle(nullptr);

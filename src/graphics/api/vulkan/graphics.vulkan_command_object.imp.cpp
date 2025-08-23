@@ -57,7 +57,7 @@ namespace graphics::api::vulkan {
 		return *this;
 	}
 
-	void* VulkanCommandObject::GetNativeHandle() const noexcept {
+	void* VulkanCommandObject::GetNativeHandle() noexcept {
 		return m_command_buffer.get();
 	}
 

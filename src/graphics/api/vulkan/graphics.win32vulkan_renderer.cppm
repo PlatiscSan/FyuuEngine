@@ -54,9 +54,10 @@ namespace graphics::api::vulkan {
 
 	};
 
-	class Win32VulkanBuilder final : public BaseVulkanBuilder<Win32VulkanBuilder, Win32VulkanRenderDevice> {
+	class Win32VulkanRenderDeviceBuilder final 
+		: public BaseVulkanRenderDeviceBuilder<Win32VulkanRenderDeviceBuilder, Win32VulkanRenderDevice> {
 	private:
-		friend class BaseVulkanBuilder<Win32VulkanBuilder, Win32VulkanRenderDevice>;
+		friend class BaseVulkanRenderDeviceBuilder<Win32VulkanRenderDeviceBuilder, Win32VulkanRenderDevice>;
 
 		vk::UniqueSurfaceKHR CreateSurface(vk::Instance& instance);
 

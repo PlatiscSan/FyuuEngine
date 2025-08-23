@@ -36,7 +36,7 @@ namespace graphics::api::vulkan {
 
 		VulkanCommandObject& operator=(VulkanCommandObject&& other) noexcept;
 
-		void* GetNativeHandle() const noexcept override;
+		void* GetNativeHandle() noexcept override;
 		API GetAPI() const noexcept override;
 		void StartRecording() override;
 		void EndRecording() override;

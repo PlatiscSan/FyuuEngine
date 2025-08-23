@@ -489,6 +489,8 @@ namespace graphics::api::vulkan {
 			WaitForLastSubmitted();
 			m_core.logical_device->waitIdle();
 
+			static_cast<BaseRenderDevice&&>(*this) = std::move(static_cast<BaseRenderDevice&&>(other));
+
 			m_core = std::move(other.m_core);
 			m_swap_chain_bundle = std::move(other.m_swap_chain_bundle);
 			m_render_pass = std::move(other.m_render_pass);

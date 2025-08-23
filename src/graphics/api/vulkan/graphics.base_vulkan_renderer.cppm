@@ -5,6 +5,7 @@ module;
 export module graphics:base_vulkan_renderer;
 import std;
 export import :vulkan_descriptor_resource;
+import defer;
 
 extern vk::Bool32 LoggerCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -169,7 +170,7 @@ namespace graphics::api::vulkan {
 	};
 
 	export template <class DerivedBuilder, class DerivedVulkanRenderDevice>
-		class BaseVulkanBuilder {
+		class BaseVulkanRenderDeviceBuilder {
 		protected:
 			static inline std::array const s_validation_layers = { "VK_LAYER_KHRONOS_validation" };
 
@@ -183,7 +184,6 @@ namespace graphics::api::vulkan {
 			platform::IWindow* m_window = nullptr;
 			bool m_enable_validation_layers;	
 		
-		private:
 			static std::pair<std::optional<std::uint32_t>, std::optional<std::uint32_t>> 
 				FindQueueFamilies(
 				vk::PhysicalDevice const& physical_device,
@@ -515,6 +515,11 @@ namespace graphics::api::vulkan {
 			}
 
 			std::optional<DerivedVulkanRenderDevice> GetRenderDevice() noexcept {
+				util::Defer defer(
+					[this]() {
+						m_render_device.reset();
+					}
+				);
 				return std::move(m_render_device);
 			}
 
