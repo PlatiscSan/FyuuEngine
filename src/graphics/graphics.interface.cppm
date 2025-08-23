@@ -5,6 +5,7 @@ import std;
 export import logger;
 export import window;
 export import message_bus;
+export import disable_copy;
 
 namespace graphics {
 
@@ -34,17 +35,17 @@ namespace graphics {
 		SOURCE     // From source
 	};
 
-	export class ICommandObject {
+	export class ICommandObject : public util::DisableCopy<ICommandObject> {
 	public:
 		virtual ~ICommandObject() noexcept = default;
-		virtual void* GetNativeHandle() const noexcept = 0;
+		virtual void* GetNativeHandle() noexcept = 0;
 		virtual API GetAPI() const noexcept = 0;
 		virtual void StartRecording() = 0;
 		virtual void EndRecording() = 0;
 		virtual void Reset() = 0;
 	};
 
-	export class BaseRenderDevice {
+	export class BaseRenderDevice : public util::DisableCopy<BaseRenderDevice> {
 	protected:
 		core::LoggerPtr m_logger;
 		platform::IWindow* m_window;		
@@ -59,14 +60,12 @@ namespace graphics {
 
 		}
 
-		BaseRenderDevice(BaseRenderDevice const&) = delete;
 		BaseRenderDevice(BaseRenderDevice&& other) noexcept
 			: m_logger(std::move(other.m_logger)),
 			m_window(std::exchange(other.m_window, nullptr)),
 			m_message_bus(std::move(other.m_message_bus)) {
 		}
 
-		BaseRenderDevice& operator=(BaseRenderDevice const&) = delete;
 		BaseRenderDevice& operator=(BaseRenderDevice&& other) noexcept {
 			if (this != &other) {
 				m_logger = std::move(other.m_logger);
@@ -76,7 +75,7 @@ namespace graphics {
 			return *this;
 		}
 
-		virtual ~BaseRenderDevice() = default;
+		virtual ~BaseRenderDevice() noexcept = default;
 
 		virtual void Clear(float r, float g, float b, float a) = 0;
 		virtual void SetViewport(int x, int y, std::uint32_t width, std::uint32_t height) = 0;
