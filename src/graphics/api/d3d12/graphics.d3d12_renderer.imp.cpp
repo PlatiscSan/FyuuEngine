@@ -82,51 +82,6 @@ namespace graphics::api::d3d12 {
 
 	}
 
-	static Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
-		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-		std::uint32_t count
-	) {
-
-		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srv_heap;
-		D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
-		srv_heap_desc.NumDescriptors = count;
-		srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-		srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-		ThrowIfFailed(device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&srv_heap)));
-
-		return srv_heap;
-
-	}
-
-	static std::deque<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>> GetResourceDescriptorHandles(
-		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& heap_descriptor
-	) {
-
-		D3D12_DESCRIPTOR_HEAP_DESC desc = heap_descriptor->GetDesc();
-		std::deque<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>> handles;
-		std::uint32_t increment = device->GetDescriptorHandleIncrementSize(desc.Type);
-		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = heap_descriptor->GetCPUDescriptorHandleForHeapStart();
-
-		D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = { 0 };
-		bool is_shader_visible = (desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) != 0;
-
-		if (is_shader_visible) {
-			gpu_handle = heap_descriptor->GetGPUDescriptorHandleForHeapStart();
-		}
-
-		for (std::uint32_t i = 0; i < desc.NumDescriptors; ++i) {
-			handles.emplace_back(cpu_handle, gpu_handle);
-			cpu_handle.ptr += increment;
-			if (is_shader_visible) {
-				gpu_handle.ptr += increment;
-			}
-		}
-
-		return handles;
-
-	}
-
 	static std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> GetRenderTargetDescriptorHandles(
 		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& rtv_heap
@@ -192,9 +147,7 @@ namespace graphics::api::d3d12 {
 	) : m_rtv_handle(rtv_handle),
 		m_frame_index(frame_index),
 		m_render_target(::graphics::api::d3d12::GetRenderTarget(device, swap_chain, m_rtv_handle, m_frame_index)),
-		m_descriptor_heap(CreateDescriptorHeap(device, resource_descriptor_count)),
-		m_descriptor_handles(GetResourceDescriptorHandles(device, m_descriptor_heap)),
-		m_descriptor_handles_mutex(),
+		m_descriptor_pool(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024u),
 		m_ready_command_lists(),
 		m_ready_command_lists_mutex(),
 		m_fence_value(0) {
@@ -204,10 +157,7 @@ namespace graphics::api::d3d12 {
 		: m_rtv_handle(other.m_rtv_handle),
 		m_frame_index(other.m_frame_index),
 		m_render_target(std::move(other.m_render_target)),
-		m_descriptor_heap(std::move(other.m_descriptor_heap)),
-		m_descriptor_handles(std::move(other.m_descriptor_handles)),
-		m_descriptor_handles_mutex(),
-		m_condition(),
+		m_descriptor_pool(std::move(other.m_descriptor_pool)),
 		m_ready_command_lists(std::move(other.m_ready_command_lists)),
 		m_ready_command_lists_mutex(),
 		m_fence_value(other.m_fence_value) {
@@ -218,8 +168,7 @@ namespace graphics::api::d3d12 {
 			m_rtv_handle = other.m_rtv_handle;
 			m_frame_index = other.m_frame_index;
 			m_render_target = std::move(other.m_render_target);
-			m_descriptor_heap = std::move(other.m_descriptor_heap);
-			m_descriptor_handles = std::move(other.m_descriptor_handles);
+			m_descriptor_pool = std::move(other.m_descriptor_pool);
 			m_ready_command_lists = std::move(other.m_ready_command_lists);
 			m_fence_value = other.m_fence_value;
 		}
@@ -228,42 +177,13 @@ namespace graphics::api::d3d12 {
 
 	FrameContext::~FrameContext() noexcept {
 		m_render_target.Reset();
-		m_descriptor_heap.Reset();
 		m_ready_command_lists.clear();
-		m_descriptor_handles.clear();
 		m_fence_value = 0;
-		m_condition.notify_all(); // Notify any waiting threads that this context is being destroyed.
 	}
 
-	util::UniqueCollectiveResource<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>>
+	DescriptorResourcePool::UniqueDescriptorHandle 
 		FrameContext::AcquireResourceDescriptorHandle() noexcept {
-
-		std::unique_lock<std::mutex> lock(m_descriptor_handles_mutex);
-		if (m_descriptor_handles.empty()) {
-			m_condition.wait(
-				lock, 
-				[this]() { 
-					return !m_descriptor_handles.empty();
-				}
-			);
-		}
-
-		auto handle = std::move(m_descriptor_handles.front());
-		m_descriptor_handles.pop_front();
-
-		return 
-		{
-			handle,
-			[this](decltype(handle) handle) {
-				m_descriptor_handles.emplace_back(std::move(handle));
-				m_condition.notify_one();
-			}
-		};
-		
-	}
-
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> FrameContext::GetDescriptorHeap() const noexcept {
-		return m_descriptor_heap;
+		return m_descriptor_pool.AcquireHandle();
 	}
 
 	std::uint64_t FrameContext::GetFenceValue() const noexcept {
@@ -432,29 +352,6 @@ namespace graphics::api::d3d12 {
 		return rtv_heap;
 	}
 
-	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(
-		Microsoft::WRL::ComPtr<ID3D12Device> const& device
-	) {
-		Microsoft::WRL::ComPtr<ID3D12CommandAllocator> command_allocator;
-		ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&command_allocator)));
-		return command_allocator;
-	}
-
-	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> CreateCommandList(
-		Microsoft::WRL::ComPtr<ID3D12Device> const& device,
-		Microsoft::WRL::ComPtr<ID3D12CommandAllocator> const& command_allocator
-	) {
-		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list;
-		ThrowIfFailed(device->CreateCommandList(
-			0,
-			D3D12_COMMAND_LIST_TYPE_DIRECT,
-			command_allocator.Get(),
-			nullptr,
-			IID_PPV_ARGS(&command_list)));
-		ThrowIfFailed(command_list->Close());
-		return command_list;
-	}
-
 	Microsoft::WRL::ComPtr<ID3D12Fence> CreateFence(
 		Microsoft::WRL::ComPtr<ID3D12Device> const& device
 	) {
@@ -473,13 +370,14 @@ namespace graphics::api::d3d12 {
 
 	void D3D12RenderDevice::WaitForNextFrame() {
 
-		std::uint64_t current_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
-		std::size_t next_frame_index = (current_frame_index + 1) % m_frames.size();
+		/*
+		*	after calling Present, GetCurrentBackBufferIndex() gets the next frame
+		*/
 
 		std::array waitable_objects = { HANDLE(m_swap_chain_waitable_object), HANDLE(nullptr) };
 		std::uint32_t num_waitable_objects = 1u;
 
-		FrameContext& next_frame = m_frames[next_frame_index];
+		FrameContext& next_frame = m_frames[m_next_frame_index];
 		std::uint64_t fence_value = next_frame.GetFenceValue();
 		if (fence_value != 0) {
 			m_fence->SetEventOnCompletion(fence_value, m_fence_event);
@@ -493,7 +391,7 @@ namespace graphics::api::d3d12 {
 
 	void D3D12RenderDevice::WaitForLastSubmittedFrame() {
 
-		FrameContext& frame = m_frames[m_swap_chain->GetCurrentBackBufferIndex()];
+		FrameContext& frame = m_frames[m_previous_frame_index];
 		std::uint64_t fence_value = frame.GetFenceValue();
 		if (fence_value == 0) {
 			// no fence signaled.
@@ -530,6 +428,8 @@ namespace graphics::api::d3d12 {
 					for (auto& frame : m_frames) {
 						frame.ResetRenderTarget(m_device, m_swap_chain);
 					}
+					m_next_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
+					m_previous_frame_index = 0;
 				}
 				break;
 			default:
@@ -546,9 +446,15 @@ namespace graphics::api::d3d12 {
 	}
 
 	void D3D12RenderDevice::OnCommandReady(CommandReadyEvent const& e) {
-		if (e.command_list) {
-			m_frames[m_swap_chain->GetCurrentBackBufferIndex()].CommitCommands(e.command_list.Get());
+
+		while (!m_allow_submission.test(std::memory_order::acquire)) {
+			m_allow_submission.wait(false, std::memory_order::relaxed);
 		}
+
+		if (e.command_list) {
+			m_frames[m_next_frame_index].CommitCommands(e.command_list.Get());
+		}
+
 	}
 
 	D3D12RenderDevice::~D3D12RenderDevice() noexcept {
@@ -570,29 +476,16 @@ namespace graphics::api::d3d12 {
 		return m_frames.size();
 	}
 
-	auto D3D12RenderDevice::AcquireResourceDescriptorHandle() noexcept {
+	DescriptorResourcePool::UniqueDescriptorHandle 
+		D3D12RenderDevice::AcquireResourceDescriptorHandle() noexcept {
 		return m_frames[m_swap_chain->GetCurrentBackBufferIndex()].AcquireResourceDescriptorHandle();
 	}
 
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> D3D12RenderDevice::CreateResourceDescriptor(
+	DescriptorResourcePool D3D12RenderDevice::CreateDescriptorResourcePool(
+		D3D12_DESCRIPTOR_HEAP_TYPE type, 
 		std::uint32_t count
-	) const noexcept {
-
-		return ::graphics::api::d3d12::CreateDescriptorHeap(
-			m_device,
-			count
-		);
-
-	}
-
-	std::deque<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>> 
-		D3D12RenderDevice::GetResourceDescriptorHandles(
-			Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& descriptor_heap
-		) const noexcept {
-		return ::graphics::api::d3d12::GetResourceDescriptorHandles(
-			m_device,
-			descriptor_heap
-		);
+	) const {
+		return DescriptorResourcePool(m_device, type, count);
 	}
 
 	void D3D12RenderDevice::Clear(float r, float g, float b, float a) {
@@ -629,7 +522,7 @@ namespace graphics::api::d3d12 {
 
 	}
 
-	bool D3D12RenderDevice::BeginFrame() {
+	bool D3D12RenderDevice::BeginFrame() try {
 
 		// Handle window screen locked
 		if ((m_swap_chain_occluded && m_swap_chain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) || 
@@ -642,7 +535,7 @@ namespace graphics::api::d3d12 {
 		// wait for next frame
 
 		WaitForNextFrame();
-		FrameContext& frame = m_frames[m_swap_chain->GetCurrentBackBufferIndex()];
+		FrameContext& next_frame = m_frames[m_next_frame_index];
 
 		auto& command_object = static_cast<D3D12CommandObject&>(AcquireCommandObject());
 		auto command_list = command_object.GetCommandList();
@@ -653,7 +546,7 @@ namespace graphics::api::d3d12 {
 		// barrier：PRESENT -> RENDER_TARGET
 		D3D12_RESOURCE_BARRIER barrier = {};
 		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		barrier.Transition.pResource = frame.GetRenderTarget().Get();
+		barrier.Transition.pResource = next_frame.GetRenderTarget().Get();
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
@@ -662,20 +555,44 @@ namespace graphics::api::d3d12 {
 		// clear render target
 
 		std::array clear_color = { 0.00f, 0.00f, 0.00f, 1.00f };
-		D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = frame.GetRTVHandle();
+		D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = next_frame.GetRTVHandle();
 
 		command_list->ClearRenderTargetView(rtv_handle, clear_color.data(), 0, nullptr);
 		command_list->OMSetRenderTargets(1, &rtv_handle, false, nullptr);
 
+		/*
+		*	Allow submission to the frame
+		*/
+
+		m_allow_submission.test_and_set(std::memory_order::release);
+		m_allow_submission.notify_all();
+
 		return true;
 
 	}
+	catch (_com_error const& ex) {
 
-	void D3D12RenderDevice::EndFrame() {
+		if (m_logger) {
 
-		std::uint32_t current_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
+			auto error_message = platform::TStringToString(ex.ErrorMessage());
 
-		FrameContext& frame = m_frames[current_frame_index];
+			m_logger->Error(
+				std::source_location::current(),
+				"{}",
+				error_message
+			);
+
+		}
+
+		return false;
+
+	}
+
+	void D3D12RenderDevice::EndFrame() try {
+
+		FrameContext& next_frame = m_frames[m_next_frame_index];
+
+		// command object for the present thread
 		auto& command_object = static_cast<D3D12CommandObject&>(AcquireCommandObject());
 		auto command_list = command_object.GetCommandList();
 
@@ -683,7 +600,7 @@ namespace graphics::api::d3d12 {
 
 		D3D12_RESOURCE_BARRIER barrier = {};
 		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		barrier.Transition.pResource = frame.GetRenderTarget().Get();
+		barrier.Transition.pResource = next_frame.GetRenderTarget().Get();
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 		command_list->ResourceBarrier(1, &barrier);
@@ -691,13 +608,19 @@ namespace graphics::api::d3d12 {
 		auto [width, height] = m_window->GetWidthAndHeight();
 		SetViewport(0, 0, width, height);
 
-		// end the next back buffer recording
+		// end the recording in the present thread.
 
 		command_object.EndRecording();
 
+		/*
+		*	No more submission to this frame
+		*/
+
+		m_allow_submission.clear(std::memory_order::release);
+
 		// now we can submit the command list for execution
 
-		auto ready_command_lists = frame.FetchAllCommands();
+		auto ready_command_lists = next_frame.FetchAllCommands();
 		m_command_queue->ExecuteCommandLists(static_cast<std::uint32_t>(ready_command_lists.size()), ready_command_lists.data());
 
 		// present
@@ -709,7 +632,25 @@ namespace graphics::api::d3d12 {
 
 		std::uint64_t fence_value = ++m_fence_value;
 		ThrowIfFailed(m_command_queue->Signal(m_fence.Get(), fence_value));
-		frame.SignalFence(fence_value);
+		next_frame.SignalFence(fence_value);
+
+		m_previous_frame_index = m_next_frame_index;
+		m_next_frame_index = m_swap_chain->GetCurrentBackBufferIndex();
+
+	}
+	catch (_com_error const& ex) {
+
+		if (m_logger) {
+
+			auto error_message = platform::TStringToString(ex.ErrorMessage());
+
+			m_logger->Error(
+				std::source_location::current(),
+				"{}",
+				error_message
+			);
+
+		}
 
 	}
 
@@ -718,8 +659,19 @@ namespace graphics::api::d3d12 {
 	}
 
 	ICommandObject& D3D12RenderDevice::AcquireCommandObject() {
-		static thread_local D3D12CommandObject command_object(m_device, &m_message_bus);
-		return command_object;
+		static thread_local std::vector<D3D12CommandObject> command_objects;
+		static thread_local std::once_flag command_objects_initialized;
+		std::call_once(
+			command_objects_initialized, 
+			[this]() {
+				std::size_t frame_count = m_frames.size();
+				command_objects.reserve(frame_count);
+				for (std::size_t i = 0; i < frame_count; ++i) {
+					command_objects.emplace_back(m_device, &m_message_bus);
+				}
+			}
+		);
+		return command_objects[m_swap_chain->GetCurrentBackBufferIndex()];
 	}
 #endif // WIN32
 }

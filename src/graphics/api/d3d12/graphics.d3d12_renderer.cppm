@@ -19,10 +19,7 @@
 #endif // interface
 
 export module graphics:d3d12_renderer;
-export import window;
-export import :d3d12_command_object;
-export import collective_resource;
-import std;
+export import :d3d12_descriptor_resource;
 
 namespace graphics::api::d3d12 {
 #ifdef _WIN32
@@ -32,10 +29,7 @@ namespace graphics::api::d3d12 {
 		D3D12_CPU_DESCRIPTOR_HANDLE m_rtv_handle;
 		std::uint32_t m_frame_index;
 		Microsoft::WRL::ComPtr<ID3D12Resource> m_render_target;
-		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_descriptor_heap;
-		std::deque<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>> m_descriptor_handles;
-		std::mutex m_descriptor_handles_mutex;
-		std::condition_variable m_condition;
+		DescriptorResourcePool m_descriptor_pool;
 		std::vector<ID3D12CommandList*> m_ready_command_lists;
 		std::mutex m_ready_command_lists_mutex;
 		std::uint64_t m_fence_value;
@@ -65,10 +59,7 @@ namespace graphics::api::d3d12 {
 
 		~FrameContext() noexcept;
 
-		util::UniqueCollectiveResource<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>>
-			AcquireResourceDescriptorHandle() noexcept;
-
-		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> GetDescriptorHeap() const noexcept;
+		DescriptorResourcePool::UniqueDescriptorHandle AcquireResourceDescriptorHandle() noexcept;
 
 		std::uint64_t GetFenceValue() const noexcept;
 
@@ -123,8 +114,6 @@ namespace graphics::api::d3d12 {
 
 	export class D3D12RenderDevice final : public BaseRenderDevice {
 	private:
-		util::MessageBus m_message_bus;
-
 		/*
 		*	DirectX12 Core
 		*/
@@ -144,7 +133,16 @@ namespace graphics::api::d3d12 {
 
 		boost::uuids::uuid m_msg_processor_uuid;
 
-		bool m_swap_chain_occluded;
+		util::Subscriber* m_command_ready_subscription;
+
+		std::size_t m_next_frame_index;
+		std::size_t m_previous_frame_index = 0;
+
+
+		/// @brief An atomic flag indicating if the rendering thread can submit commands
+		std::atomic_flag m_allow_submission = {};
+
+		bool m_swap_chain_occluded = false;
 
 		void WaitForNextFrame();
 		void WaitForLastSubmittedFrame();
@@ -157,7 +155,6 @@ namespace graphics::api::d3d12 {
 		template <std::convertible_to<core::LoggerPtr> Logger>
 		D3D12RenderDevice(Logger&& logger, platform::Win32Window& window, bool use_warp = false, std::uint32_t frame_count = 2u)
 			: BaseRenderDevice(std::forward<Logger>(logger), window),
-			m_message_bus(),
 			m_factory(CreateFactory()),
 			m_device(CreateDevice(m_factory, use_warp)),
 			m_rtv_heap(CreateRTVHeap(m_device, frame_count)),
@@ -174,13 +171,15 @@ namespace graphics::api::d3d12 {
 						return HandleResize(hwnd, msg, wparam, lparam);
 					}
 				)
-			) {
-
-			(void)m_message_bus.Subscribe<CommandReadyEvent>(
-				[this](CommandReadyEvent const& e) {
-					OnCommandReady(e);
-				}
-			);
+			),
+			m_command_ready_subscription(
+				m_message_bus.Subscribe<CommandReadyEvent>(
+					[this](CommandReadyEvent const& e) {
+						OnCommandReady(e);
+					}
+				)
+			),
+			m_next_frame_index(m_swap_chain->GetCurrentBackBufferIndex()) {
 
 		}
 
@@ -192,12 +191,9 @@ namespace graphics::api::d3d12 {
 
 		std::size_t FrameCount() const noexcept;
 
-		auto AcquireResourceDescriptorHandle() noexcept;
+		DescriptorResourcePool::UniqueDescriptorHandle AcquireResourceDescriptorHandle() noexcept;
 
-		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateResourceDescriptor(std::uint32_t count) const noexcept;
-
-		std::deque<std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE>>
-			GetResourceDescriptorHandles(Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> const& descriptor_heap) const noexcept;
+		DescriptorResourcePool CreateDescriptorResourcePool(D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t count) const;
 
 		void Clear(float r, float g, float b, float a) override;
 		void SetViewport(int x, int y, uint32_t width, uint32_t height) override;
