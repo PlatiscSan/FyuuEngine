@@ -69,6 +69,10 @@ namespace graphics::api::opengl {
 		return API::OpenGL;
 	}
 
+	ICommandObject& Win32OpenGLRenderDevice::AcquireCommandObject() {
+		// TODO: insert return statement here
+	}
+
 #endif // WIN32
 }
 

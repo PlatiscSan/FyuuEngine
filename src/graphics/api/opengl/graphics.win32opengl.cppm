@@ -1,8 +1,7 @@
 module;
-
-#include <GL/glcorearb.h>
 #ifdef WIN32
-#include <GL/wglext.h>
+#include <Windows.h>
+#include <glad/glad.h>
 #endif // WIN32
 
 export module graphics:win32opengl;
@@ -41,6 +40,9 @@ namespace graphics::api::opengl {
 		void EndFrame() override;
 
 		API GetAPI() const noexcept override;
+
+		ICommandObject& AcquireCommandObject() override;
+
 
 	};
 #endif // WIN32

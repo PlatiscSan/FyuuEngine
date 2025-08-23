@@ -25,8 +25,8 @@ namespace graphics {
 			throw std::invalid_argument("Meta can only run on apple");
 		case graphics::API::OpenGL:
 		{
-			//static api::opengl::Win32OpenGLRenderDevice opengl_device(std::forward<Logger>(logger), window);
-			//return opengl_device;
+			static api::opengl::Win32OpenGLRenderDevice opengl_device(std::forward<Logger>(logger), window);
+			return opengl_device;
 		}
 		case graphics::API::Vulkan:
 		{
