@@ -69,7 +69,12 @@ namespace ui::imgui::api::opengl {
 		auto [width, height] = m_window->GetWidthAndHeight();
 		m_device->SetViewport(0, 0, width, height);
 		m_device->Clear(m_clear_color.x, m_clear_color.y, m_clear_color.z, m_clear_color.w);
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		auto& command_object = static_cast<graphics::api::opengl::OpenGLCommandObject&>(m_device->AcquireCommandObject());
+		command_object.SubmitCommand(
+			[]() {
+				ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			}
+		);
 
 	}
 
