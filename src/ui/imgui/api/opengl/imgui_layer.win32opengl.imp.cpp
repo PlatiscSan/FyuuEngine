@@ -3,18 +3,17 @@ module;
 #ifdef WIN32
 #include <GL/wglext.h>
 #endif // WIN32
-#include <imgui.h>
 
 module imgui_layer:win32opengl;
 import window;
+import <imgui.h>;
 
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 namespace ui::imgui::api::opengl {
 #ifdef WIN32
 
-	boost::uuids::uuid Win32OpenGLImGUILayer::InitializeImGUI(
-		Win32OpenGLImGUILayer* layer, 
+	boost::uuids::uuid Win32OpenGLIMGUILayer::InitializeImGUI(
 		platform::Win32Window* window, 
 		graphics::api::opengl::Win32OpenGLRenderDevice* device
 	) {
@@ -38,63 +37,35 @@ namespace ui::imgui::api::opengl {
 
 	}
 
-	Win32OpenGLImGUILayer::Win32OpenGLImGUILayer(platform::Win32Window& window, graphics::api::opengl::Win32OpenGLRenderDevice& device)
-		: m_window(&window), 
-		m_device(&device), 
-		m_layer_uuid(Win32OpenGLImGUILayer::InitializeImGUI(this, m_window, m_device)) {
+	Win32OpenGLIMGUILayer::Win32OpenGLIMGUILayer(
+		platform::IWindow& window,
+		graphics::BaseRenderDevice& device,
+		ImVec4 const& clear_color
+	) : BaseIMGUILayer(window, device, clear_color),
+		m_layer_uuid(
+			Win32OpenGLIMGUILayer::InitializeImGUI(
+				static_cast<platform::Win32Window*>(m_window), 
+				static_cast<graphics::api::opengl::Win32OpenGLRenderDevice*>(m_device)
+			)
+		) {
 
 	}
 
-	Win32OpenGLImGUILayer::~Win32OpenGLImGUILayer() noexcept {
+	Win32OpenGLIMGUILayer::~Win32OpenGLIMGUILayer() noexcept {
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplWin32_Shutdown();
-		ImGui::DestroyContext();
 	}
 
-	void Win32OpenGLImGUILayer::BeginFrame() {
+	void Win32OpenGLIMGUILayer::BeginFrame() {
 		// Start the Dear ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplWin32_NewFrame();
-		ImGui::NewFrame();
+		BaseIMGUILayer::BeginFrame();
 	}
 
-	void Win32OpenGLImGUILayer::EndFrame() {
-	}
+	void Win32OpenGLIMGUILayer::Render() {
 
-	void Win32OpenGLImGUILayer::Update() {
-
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-
-		if (m_show_demo_window)
-			ImGui::ShowDemoWindow(&m_show_demo_window);
-
-		{
-			static float f = 0.0f;
-			static int counter = 0;
-			ImGui::Begin("Hello, world!");
-			ImGui::Checkbox("Demo Window", &m_show_demo_window);
-			ImGui::Checkbox("Another Window", &m_show_another_window);
-			ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-			ImGui::ColorEdit3("clear color", (float*)&m_clear_color);
-			if (ImGui::Button("Button"))
-				counter++;
-			ImGui::Text("counter = %d", counter);
-			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-			ImGui::End();
-		}
-
-		if (m_show_another_window) {
-			ImGui::Begin("Another Window", &m_show_another_window);
-			if (ImGui::Button("Close Me"))
-				m_show_another_window = false;
-			ImGui::End();
-		}
-
-	}
-
-	void Win32OpenGLImGUILayer::Render() {
-
-		ImGui::Render();
+		BaseIMGUILayer::Render();
 		auto [width, height] = m_window->GetWidthAndHeight();
 		m_device->SetViewport(0, 0, width, height);
 		m_device->Clear(m_clear_color.x, m_clear_color.y, m_clear_color.z, m_clear_color.w);
