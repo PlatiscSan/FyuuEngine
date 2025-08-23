@@ -44,9 +44,11 @@ namespace graphics::api::d3d12 {
 		);
 
 		D3D12CommandObject(Microsoft::WRL::ComPtr<ID3D12Device> const& device, util::MessageBusPtr const& message_bus);
+		D3D12CommandObject(D3D12CommandObject&& other) noexcept;
+		D3D12CommandObject& operator=(D3D12CommandObject&& other) noexcept;
 
 		~D3D12CommandObject() noexcept override = default;
-		void* GetNativeHandle() const noexcept override;
+		void* GetNativeHandle() noexcept override;
 		API GetAPI() const noexcept override;
 		void StartRecording() override;
 		void EndRecording() override;

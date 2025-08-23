@@ -79,7 +79,22 @@ namespace graphics::api::d3d12 {
 		m_message_bus(util::MakeReferred(message_bus)) {
 	}
 
-	void* D3D12CommandObject::GetNativeHandle() const noexcept {
+	D3D12CommandObject::D3D12CommandObject(D3D12CommandObject&& other) noexcept
+		: m_command_allocator(std::move(other.m_command_allocator)),
+		m_command_list(std::move(other.m_command_list)),
+		m_message_bus(std::move(other.m_message_bus)) {
+	}
+
+	D3D12CommandObject& D3D12CommandObject::operator=(D3D12CommandObject&& other) noexcept {
+		if (this != &other) {
+			m_command_allocator = std::move(other.m_command_allocator);
+			m_command_list = std::move(other.m_command_list);
+			m_message_bus = std::move(other.m_message_bus);
+		}
+		return *this;
+	}
+
+	void* D3D12CommandObject::GetNativeHandle() noexcept {
 		return m_command_list.Get();
 	}
 

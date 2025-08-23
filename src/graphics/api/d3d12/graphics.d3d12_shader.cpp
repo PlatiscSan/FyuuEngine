@@ -7,7 +7,6 @@ module;
 #include <DirectXMath.h>
 #include <wrl/client.h>
 #include <comdef.h>
-#include "d3dx12.h"
 #endif // WIN32
 
 module graphics:d3d12_shader;
