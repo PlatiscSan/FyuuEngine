@@ -9,7 +9,7 @@ if (POLICY CMP0141)
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-function(recursive_group_sources root_dir target_name)
+function(recursive_group_sources root_dir target_name target_files)
     # 定义源文件和模块文件匹配模式
     set(file_patterns
         "${root_dir}/*.[ch]"
@@ -22,7 +22,7 @@ function(recursive_group_sources root_dir target_name)
         "${root_dir}/*.mxx"        # 备用模块接口扩展
         "${root_dir}/*.impl.cpp"   # 模块实现文件
     )
-
+    
     # 递归获取所有源文件
     file(GLOB_RECURSE all_files
         LIST_DIRECTORIES false
@@ -30,8 +30,9 @@ function(recursive_group_sources root_dir target_name)
         ${file_patterns}
     )
 
-    # 分离普通源文件和模块文件
+    # 分离不同类型的文件
     set(source_files)
+    set(header_files)
     set(module_interface_files)
     set(module_implementation_files)
     
@@ -42,29 +43,63 @@ function(recursive_group_sources root_dir target_name)
             list(APPEND module_interface_files ${file})
         elseif(ext MATCHES "\\.(impl\\.cpp)$")
             list(APPEND module_implementation_files ${file})
+        elseif(ext MATCHES "\\.(h|hpp|hh|hxx)$")
+            list(APPEND header_files ${file})
         else()
             list(APPEND source_files ${file})
         endif()
     endforeach()
 
-    # 处理所有文件的分组
-    foreach(file ${all_files})
+    # 为不同类型文件设置不同的分组
+    # 1. 处理模块接口文件
+    foreach(file ${module_interface_files})
         file(RELATIVE_PATH rel_path ${root_dir} ${file})
         get_filename_component(group_dir ${rel_path} DIRECTORY)
         
-        # 为模块文件添加特殊分组前缀
-        get_filename_component(ext ${file} EXT)
-        if(ext MATCHES "\\.(ixx|cppm|mpp|cxxm|mxx|impl\\.cpp)$")
-            set(group_prefix "Modules\\\\")
-        else()
-            set(group_prefix "")
-        endif()
-        
         if(group_dir)
-            string(REPLACE "/" "\\" group_name "${group_prefix}${group_dir}")
+            string(REPLACE "/" "\\" group_name "Modules\\${group_dir}")
             source_group("${group_name}" FILES ${file})
         else()
-            source_group("${group_prefix}\\" FILES ${file})
+            source_group("Modules" FILES ${file})
+        endif()
+    endforeach()
+
+    # 2. 处理模块实现文件
+    foreach(file ${module_implementation_files})
+        file(RELATIVE_PATH rel_path ${root_dir} ${file})
+        get_filename_component(group_dir ${rel_path} DIRECTORY)
+        
+        if(group_dir)
+            string(REPLACE "/" "\\" group_name "Modules\\Implementations\\${group_dir}")
+            source_group("${group_name}" FILES ${file})
+        else()
+            source_group("Modules\\Implementations" FILES ${file})
+        endif()
+    endforeach()
+
+    # 3. 处理头文件
+    foreach(file ${header_files})
+        file(RELATIVE_PATH rel_path ${root_dir} ${file})
+        get_filename_component(group_dir ${rel_path} DIRECTORY)
+        
+        if(group_dir)
+            string(REPLACE "/" "\\" group_name "Headers\\${group_dir}")
+            source_group("${group_name}" FILES ${file})
+        else()
+            source_group("Headers" FILES ${file})
+        endif()
+    endforeach()
+
+    # 4. 处理普通源文件
+    foreach(file ${source_files})
+        file(RELATIVE_PATH rel_path ${root_dir} ${file})
+        get_filename_component(group_dir ${rel_path} DIRECTORY)
+        
+        if(group_dir)
+            string(REPLACE "/" "\\" group_name "Sources\\${group_dir}")
+            source_group("${group_name}" FILES ${file})
+        else()
+            source_group("Sources" FILES ${file})
         endif()
     endforeach()
 
@@ -79,7 +114,6 @@ function(recursive_group_sources root_dir target_name)
             # MSVC 需要启用模块支持
             target_compile_options(${target_name} PRIVATE "/experimental:module")
             target_compile_options(${target_name} PRIVATE "/std:c++latest")
-            
             
             # 获取默认输出目录（MSVC 放置 .ifc 文件的位置）
             set(module_search_dir "$<TARGET_FILE_DIR:${target_name}>/../")
@@ -107,7 +141,7 @@ function(recursive_group_sources root_dir target_name)
     endif()
 
     # 返回所有文件列表
-    set(all_files ${all_files} PARENT_SCOPE)
+    set(${target_files} ${all_files} PARENT_SCOPE)
 endfunction()
 
 project ("FyuuEngine")
@@ -120,6 +154,20 @@ find_package(imgui CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(spirv_cross_core CONFIG REQUIRED)
+find_package(spirv_cross_glsl CONFIG REQUIRED)
+find_package(spirv_cross_hlsl CONFIG REQUIRED)
+find_package(spirv_cross_msl CONFIG REQUIRED)
+find_package(spirv_cross_reflect CONFIG REQUIRED)
+find_package(spirv_cross_util CONFIG REQUIRED)
+find_package(spirv_cross_cpp CONFIG REQUIRED)
+find_package(spirv_cross_c CONFIG REQUIRED)
+find_package(unofficial-spirv-reflect CONFIG REQUIRED)
+
+if(WIN32)
+    find_package(directx-headers CONFIG REQUIRED)
+endif(WIN32)
+
 
 if( ${Vulkan_VERSION} VERSION_LESS "1.3.256" )
   message( FATAL_ERROR "Minimum required Vulkan version for C++ modules is 1.3.256. "
@@ -127,46 +175,13 @@ if( ${Vulkan_VERSION} VERSION_LESS "1.3.256" )
   )
 endif()
 
-add_executable(MyApp)
-recursive_group_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" MyApp)
-
-target_sources(MyApp 
-    PRIVATE 
-        ${all_files}
-        ${Vulkan_INCLUDE_DIR}/vulkan/vulkan.cppm
-)
-
-target_link_libraries(MyApp 
-    PRIVATE 
-        Boost::uuid
-        Eigen3::Eigen
-        imgui::imgui
-        glfw
-        yaml-cpp::yaml-cpp
-        nlohmann_json::nlohmann_json
-        glad::glad
-        Vulkan::Vulkan
-)
-
-target_include_directories(MyApp 
-    PRIVATE 
-        ${Vulkan_INCLUDE_DIRS}
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-if(WIN32)
-    target_link_libraries(MyApp 
-        PRIVATE 
-            d3d12
-            dxgi
-            d3dcompiler
-            dxguid
-            Opengl32
-    )
-    target_compile_definitions(MyApp 
-        PRIVATE 
-            WIN32_LEAN_AND_MEAN
-    )
-    add_compile_definitions(VK_USE_PLATFORM_WIN32_KHR VK_ENABLE_BETA_EXTENSIONS)
+if(MSVC)
+    add_compile_options(/Zc:__cplusplus /Zc:preprocessor)
 endif()
-       
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
+
+add_subdirectory(src/engine)
+add_subdirectory(src/application)
