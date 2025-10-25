@@ -37,8 +37,34 @@ target_sources(config
 )
 target_link_libraries(config
     PRIVATE
-        yaml-cpp::yaml-cpp
         utility
+        yaml-cpp::yaml-cpp
+)
+
+add_library(math STATIC)
+recursive_group_sources("${CMAKE_CURRENT_SOURCE_DIR}/math" math math_src)
+target_sources(math
+    PRIVATE
+        ${math_src}
+)
+target_link_libraries(math
+    PRIVATE
+        utility
+        Eigen3::Eigen
+)
+
+add_library(physics STATIC)
+recursive_group_sources("${CMAKE_CURRENT_SOURCE_DIR}/physics" physics physics_src)
+target_sources(physics
+    PRIVATE
+        ${physics_src}
+)
+target_link_libraries(physics
+    PRIVATE
+        utility
+        math
+        config
+        Jolt::Jolt
 )
 
 add_library(spirv STATIC)
@@ -72,8 +98,8 @@ target_link_libraries(core
     PRIVATE
         utility
         concurrency
-        config
         logger
+        config
 )
 
 add_library(vulkan_backend STATIC)
@@ -98,6 +124,7 @@ target_link_libraries(vulkan_backend
     PUBLIC
         core
         Vulkan::Vulkan
+        glslang::glslang glslang::glslang-default-resource-limits glslang::SPIRV glslang::SPVRemapper
 )
 if(WIN32)
     target_compile_definitions(vulkan_backend

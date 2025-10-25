@@ -10,14 +10,14 @@ namespace fyuu_engine::application {
 		: public IApplication {
 	private:
 		Fyuu_IApplication* m_app;
-		CLoggerAdapter m_logger;
+		std::optional<CLoggerAdapter> m_logger;
 
 	public:
 		CApplicationAdapter(Fyuu_IApplication* app);
 
 		/// @brief	engine calls this function to bind your own logger
 		/// @return logger interface you provide, nullptr for default logger
-		ILogger* CustomLogger() override;
+		ILogger* CustomLogger(LogLevel level, bool write_to_file, std::size_t max_size) override;
 
 		/// @brief	engine calls this function to get launch configuration and then initialize.
 		/// @return launch configuration

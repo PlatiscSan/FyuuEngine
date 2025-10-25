@@ -89,17 +89,6 @@ namespace fyuu_engine::core {
 		Count
 	};
 
-	export enum class ShaderStage : std::uint8_t {
-		Unknown,
-		Vertex,
-		Fragment,
-		Pixel = Fragment,
-		Geometry,
-		Mesh,
-		All,
-		Count
-	};
-
 	/// @brief 
 	/// @tparam DerivedPipelineStateObjectBuilder 
 	/// @tparam PSO like Microsoft::WRL::ComPtr<ID3D12PipelineState> and vk::UniquePipeline or whatever else

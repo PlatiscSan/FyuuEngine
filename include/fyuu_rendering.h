@@ -31,9 +31,9 @@ EXTERN_C {
 	typedef enum Fyuu_API {
 		FYUU_API_UNKNOWN,
 		FYUU_API_VULKAN,
-		FYUU_API_OPENGL,
 		FYUU_API_DIRECTX12,
-		FYUU_API_METAL
+		FYUU_API_METAL,
+		FYUU_API_OPENGL,
 	} Fyuu_API;
 
 	typedef struct Fyuu_CommandObject {
@@ -65,10 +65,14 @@ namespace fyuu_engine::application {
 
 	enum class API : std::uint8_t {
 		Unknown,
-		Vulkan,
-		OpenGL,
+		Vulkan,	
 		DirectX12,
-		Metal
+		Metal,
+		OpenGL,
+	};
+
+	enum class QueryableObjectTypes : std::uint8_t {
+		PSOBuilder
 	};
 
 	class DLL_API CommandObject {
@@ -94,6 +98,15 @@ namespace fyuu_engine::application {
 
 	};
 
+	class DLL_API PSOBuilder {
+	private:
+		void* m_impl;
+		API m_backend;
+
+	public:
+
+	};
+
 	class DLL_API Renderer {
 	private:
 		void* m_impl;
@@ -106,10 +119,108 @@ namespace fyuu_engine::application {
 		void* GetImplementation() const noexcept;
 		API GetBackend() const noexcept;
 
+		std::size_t QueryObjectRequiredSize(QueryableObjectTypes type) const noexcept;
+
+		PSOBuilder CreatePSOBuilder(std::span<std::byte> buffer) const noexcept;
+
 		operator Fyuu_Renderer() const noexcept;
 	};
 }
-#endif // __cplusplus
 
+/*
+*	helper macros to call internal implementation object
+*/
+
+#define FYUU_CALL_BACKEND_OBJ_MEMBER(OBJ_TYPE, FUNC, OBJ, ...) \
+	static_cast<OBJ_TYPE*>(OBJ)->FUNC(__VA_OPT__(__VA_ARGS__))
+
+#if defined(_WIN32) || defined(_WIN64)
+
+#define FYUU_DECLARE_BACKEND_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, DIRECTX_12_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			VULKAN_CASE; \
+			break;\
+		case fyuu_engine::application::API::DirectX12: \
+			DIRECTX_12_CASE; \
+			break;\
+		case fyuu_engine::application::API::OpenGL:\
+			OPENGL_CASE; \
+			break;\
+		default: \
+			DEFAULT_CASE; \
+			break; \
+	}
+
+#define FYUU_DECLARE_BACKEND_RETURN_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, DIRECTX_12_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			return VULKAN_CASE; \
+		case fyuu_engine::application::API::DirectX12: \
+			return DIRECTX_12_CASE; \
+		case fyuu_engine::application::API::OpenGL:\
+			return OPENGL_CASE; \
+		default: \
+			return DEFAULT_CASE; \
+	}
+
+#elif defined(__linux__)
+
+#define FYUU_DECLARE_BACKEND_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			VULKAN_CASE; \
+			break;\
+		case fyuu_engine::application::API::OpenGL:\
+			OPENGL_CASE; \
+			break;\
+		default: \
+			DEFAULT_CASE; \
+			break; \
+	}
+
+#define FYUU_DECLARE_BACKEND_RETURN_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			return VULKAN_CASE; \
+		case fyuu_engine::application::API::OpenGL:\
+			return OPENGL_CASE; \
+		default: \
+			return DEFAULT_CASE; \
+	}
+
+#elif defined(__APPLE__) && defined(__MACH__)
+
+#define FYUU_DECLARE_BACKEND_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, METAL_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			VULKAN_CASE; \
+			break;\
+		case fyuu_engine::application::API::Metal: \
+			METAL_CASE; \
+			break;\
+		case fyuu_engine::application::API::OpenGL:\
+			OPENGL_CASE; \
+			break;\
+		default: \
+			DEFAULT_CASE; \
+			break; \
+	}
+
+#define FYUU_DECLARE_BACKEND_SWITCH(BACKEND, VULKAN_CASE, OPENGL_CASE, METAL_CASE, DEFAULT_CASE) \
+	switch (static_cast<fyuu_engine::application::API>(BACKEND)) { \
+		case fyuu_engine::application::API::Vulkan: \
+			return VULKAN_CASE; \
+		case fyuu_engine::application::API::Metal: \
+			return METAL_CASE; \
+		case fyuu_engine::application::API::OpenGL:\
+			return OPENGL_CASE; \
+		default: \
+			return DEFAULT_CASE; \
+	}
+
+#endif
+
+#endif // __cplusplus
 
 #endif // !FYUU_RENDERING_H

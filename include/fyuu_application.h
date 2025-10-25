@@ -11,6 +11,7 @@
 #ifdef __cplusplus
 #include <optional>
 #include <thread>
+#include <filesystem>
 #endif // __cplusplus
 
 EXTERN_C{
@@ -22,16 +23,19 @@ EXTERN_C{
 	} Fyuu_Button;
 
 	typedef struct Fyuu_ApplicationConfig {
-		char const* application_name;
-		char const* title;
-		uint32_t width;
-		uint32_t height;
-		size_t rendering_threads;
-		Fyuu_API backend;
+		
+		typedef enum Fyuu_ConfigFormat {
+			FYUU_CONFIG_FORMAT_YAML = 0,
+			FYUU_CONFIG_FORMAT_JSON = 1
+		} Fyuu_ConfigFormat;
+
+		char const* path;
+		Fyuu_ConfigFormat format;
+
 	} Fyuu_ApplicationConfig;
 
 	typedef struct Fyuu_IApplication {
-		typedef Fyuu_ILogger* (*Fyuu_CustomLoggerFuncPtr)();
+		typedef Fyuu_ILogger* (*Fyuu_CustomLoggerFuncPtr)(Fyuu_LogLevel level, bool write_to_file, size_t max_size);
 		typedef Fyuu_ApplicationConfig(*Fyuu_GetConfigFuncPtr)();
 
 		typedef void (*Fyuu_OnCloseFuncPtr)();
@@ -45,8 +49,12 @@ EXTERN_C{
 		typedef void (*Fyuu_OnUpdateFuncPtr)(size_t, Fyuu_Renderer renderer);
 		typedef void (*Fyuu_OnRenderFuncPtr)(size_t, Fyuu_CommandObject command_object);
 
-		/// @brief	engine calls this function to bind your own logger
-		/// @return logger interface you provide, nullptr for default logger
+
+		/// @brief					Creates or retrieves a custom logger configured with the specified log level and file options.
+		/// @param level			The log level the logger should use (controls which message severities are recorded).
+		/// @param write_to_file	If true, the logger writes output to a file; if false, it does not write to a file.
+		/// @param max_size The		maximum size (in bytes) for the log file before rotation or truncation when file output is enabled.
+		/// @return					A pointer to an ILogger instance configured with the given options.
 		Fyuu_CustomLoggerFuncPtr CustomLogger;
 
 		/// @brief	engine calls this function to get launch configuration and then initialize.
@@ -122,24 +130,30 @@ namespace fyuu_engine::application {
 	};
 
 	struct ApplicationConfig {
-		std::string_view application_name;
-		std::string_view title;
-		std::uint32_t width;
-		std::uint32_t height;
-		std::size_t rendering_threads;
-		API backend;
+
+		enum class ConfigFormat : std::uint8_t {
+			YAML = 0,
+			JSON = 1
+		};
+
+		std::filesystem::path path;
+		ConfigFormat format = ConfigFormat::YAML;
 
 		ApplicationConfig() = default;
-		ApplicationConfig(Fyuu_ApplicationConfig const& config) noexcept;
+		ApplicationConfig(Fyuu_ApplicationConfig const& c_config);
+
 	};
 
 	class DLL_CLASS IApplication {
 	public:
 		virtual ~IApplication() = default;
 
-		/// @brief	engine calls this function to bind your own logger
-		/// @return logger interface you provide, nullptr for default logger
-		virtual ILogger* CustomLogger();
+		/// @brief					Creates or retrieves a custom logger configured with the specified log level and file options.
+		/// @param level			The log level the logger should use (controls which message severities are recorded).
+		/// @param write_to_file	If true, the logger writes output to a file; if false, it does not write to a file.
+		/// @param max_size The		maximum size (in bytes) for the log file before rotation or truncation when file output is enabled.
+		/// @return					A pointer to an ILogger instance configured with the given options.
+		virtual ILogger* CustomLogger(LogLevel level, bool write_to_file, std::size_t max_size);
 
 		/// @brief	engine calls this function to get launch configuration and then initialize.
 		/// @return launch configuration
@@ -207,7 +221,7 @@ namespace fyuu_engine::application {
 #endif // __cplusplus
 
 #ifdef STATIC_LIB
-DLL_EXTERN_C int main(int argc, char** argv);
+extern int main(int argc, char** argv);
 #endif
 
 #endif // !FYUU_APPLICATION_H

@@ -163,6 +163,8 @@ find_package(spirv_cross_util CONFIG REQUIRED)
 find_package(spirv_cross_cpp CONFIG REQUIRED)
 find_package(spirv_cross_c CONFIG REQUIRED)
 find_package(unofficial-spirv-reflect CONFIG REQUIRED)
+find_package(glslang CONFIG REQUIRED)
+find_package(Jolt CONFIG REQUIRED)
 
 if(WIN32)
     find_package(directx-headers CONFIG REQUIRED)

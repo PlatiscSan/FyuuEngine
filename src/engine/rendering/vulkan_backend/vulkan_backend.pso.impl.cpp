@@ -1,6 +1,40 @@
 module vulkan_backend:pso;
+import file;
 
 namespace fyuu_engine::vulkan {
+
+	void VulkanPipelineStateObjectBuilder::LoadShader(
+		std::filesystem::path const& path,
+		std::vector<std::byte>& output,
+		std::atomic_flag& flag
+	) {
+		output = util::ReadFile(path);
+		flag.test_and_set(std::memory_order::release);
+	}
+
+	VulkanPipelineStateObjectBuilder& VulkanPipelineStateObjectBuilder::LoadVertexShaderImpl(std::filesystem::path const& path) {
+		s_scheduler->SubmitTask(
+			[this, path]() {
+				LoadShader(path, m_vertex_shader, m_vertex_shader_ready);
+			}
+		);
+
+		return *this;
+	}
+
+	VulkanPipelineStateObjectBuilder& VulkanPipelineStateObjectBuilder::LoadFragmentShaderImpl(std::filesystem::path const& path) {
+		s_scheduler->SubmitTask(
+			[this, path]() {
+				LoadShader(path, m_fragment_shader, m_fragment_shader_ready);
+			}
+		);
+
+		return *this;
+	}
+
+	VulkanPipelineStateObjectBuilder& VulkanPipelineStateObjectBuilder::LoadPixelShaderImpl(std::filesystem::path const& path) {
+		return LoadFragmentShaderImpl(path);
+	}
 
 	/*static vk::ShaderStageFlagBits ToVulkan(core::ShaderStage stage) {
 

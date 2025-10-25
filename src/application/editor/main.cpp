@@ -1,6 +1,6 @@
 #include <fyuu_application.h>
 
-class HelloWorld final : public fyuu_engine::application::IApplication {
+class Editor final : public fyuu_engine::application::IApplication {
 private:
 	std::thread::id m_main_thread_id;
 
@@ -28,16 +28,13 @@ private:
 	}
 
 public:
-	HelloWorld()
+	Editor()
 		: m_main_thread_id(std::this_thread::get_id()) {
 
 	}
 };
 
 int main(void) {
-	HelloWorld hello_world;
-	return fyuu_engine::application::RunApp(&hello_world);
-
-	//Fyuu_IApplication hello_world{};
-	//return Fyuu_RunApp(&hello_world);
+	Editor editor;
+	return fyuu_engine::application::RunApp(&editor);
 }

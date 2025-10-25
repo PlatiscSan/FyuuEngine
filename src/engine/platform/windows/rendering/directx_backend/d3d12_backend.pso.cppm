@@ -47,7 +47,7 @@ namespace fyuu_engine::windows::d3d12 {
 		void RethrowException() const;
 		ID3D12Device* LoadDevice() const noexcept;
 
-		void LoadShader(
+		static void LoadShader(
 			std::filesystem::path const& path, 
 			std::vector<std::byte>& output,
 			std::atomic_flag& flag
@@ -59,7 +59,7 @@ namespace fyuu_engine::windows::d3d12 {
 
 		D3D12PipelineStateObjectBuilder& LoadPixelShaderImpl(std::filesystem::path const& path);
 
-		void CompileShader(
+		static void CompileShader(
 			std::filesystem::path const& path, 
 			std::vector<std::byte>& output, 
 			std::atomic_flag& flag,

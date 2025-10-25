@@ -1,105 +1,303 @@
 export module config:node;
-import :number;
 import std;
 
-namespace fyuu_engine::core {
+namespace fyuu_engine::config {
+
+	export using Number = std::variant<
+		std::monostate,
+		std::uintmax_t,
+		std::intmax_t,
+		double
+	>;
+
 	export class ConfigNode {
 	public:
-		using ConfigValue = std::variant<
-			std::monostate,
-			Number,
-			std::vector<Number>,
-			std::string,
-			std::vector<std::string>,
-			ConfigNode
-		>;
-		using Map = std::unordered_map<std::string, ConfigValue>;
+		class Value;
+		using Map = std::unordered_map<std::string, Value>;
+		using Iterator = Map::iterator;
+		using ConstIterator = Map::const_iterator;
 
 	private:
-		Map m_root;
-
-		static std::vector<std::string> SplitSegment(std::string_view segment);
-
-		std::pair<Map*, std::string> TraverseForWrite(std::vector<std::string> const& segments);
-
-		std::pair<Map const*, std::string> TraverseForRead(std::vector<std::string> const& segments) const;
+		Map m_fields;
 
 	public:
-		ConfigNode() = default;
+		Value& operator[](std::string const& key);
+		Value const& operator[](std::string const& key) const;
 
-		template <std::convertible_to<Map> CompatibleMap>
-		ConfigNode(CompatibleMap&& map)
-			: m_root(std::forward<CompatibleMap>(map)) {
+		Iterator begin() noexcept;
+		Iterator end() noexcept;
 
-		}
+		ConstIterator begin() const noexcept;
+		ConstIterator end() const noexcept;
 
-		Map const& Root() const noexcept;
+	};
 
-		template <std::convertible_to<ConfigNode> Node>
-		void Root(Node&& node) noexcept {
-			m_root = std::forward<Node>(node);
-		}
+	class ConfigNode::Value {
+	public:
+		using ArrayElement = std::variant<std::monostate, Number, std::string>;
+		using Array = std::vector<ArrayElement>;
 
-		template <std::convertible_to<std::string> Key>
-		ConfigValue& operator[](Key&& key) {
-			auto segments = SplitSegment(std::forward<Key>(key));
-			if (segments.empty()) {
-				throw std::invalid_argument("Empty key");
-			}
-			auto [last_map, last_key] = TraverseForWrite(segments);
-			return last_map[last_key];
-		}
+		enum class StorageType : std::uint8_t {
+			Null,
+			Number,
+			String,
+			Array,
+			Node
+		};
 
-		template <std::convertible_to<std::string> Key, class Value>
-		void Set(Key&& key, Value&& value) {
-			auto segments = SplitSegment(std::forward<Key>(key));
-			if (segments.empty()) {
-				throw std::invalid_argument("Empty key");
-			}
-			auto [last_map, last_key] = TraverseForWrite(segments);
-			last_map->try_emplace(last_key, std::forward<Value>(value));
-		}
+	private:
+		using Storage = std::variant<
+			std::monostate, 
+			Number,
+			std::string, 
+			Array,
+			std::shared_ptr<ConfigNode>
+		>;
 
-		template <class Value, std::convertible_to<std::string> Key>
-		std::optional<Value> Get(Key&& key) const {
-			auto segments = SplitSegment(std::forward<Key>(key));
-			if (segments.empty()) {
-				return std::nullopt;
-			}
+		Storage m_storage;
 
-			auto [last_map, last_key] = TraverseForRead(segments);
-			if (!last_map) {
-				return std::nullopt;
-			}
+	public:
+		operator bool() const noexcept;
 
-			auto it = last_map->find(last_key);
-			if (it == last_map->end()) {
-				return std::nullopt;
-			}
+		StorageType GetStorageType() const noexcept;
 
+		template <std::integral T>
+		T Get() {
 			return std::visit(
-				[](auto&& value) -> std::optional<Value> {
-					using Storage = std::decay_t<decltype(value)>;
-					if constexpr (std::is_same_v<Storage, Number> && std::is_convertible_v<Storage, Value>) {
-						return value.Get<Value>();
-					}
-					else if constexpr (std::is_same_v<Storage, std::vector<Number>> && std::is_convertible_v<std::vector<Number>, Value>) {
-						return static_cast<Value>(value);
-					}
-					else if constexpr (std::is_same_v<Storage, std::string> && std::is_convertible_v<std::string, Value>) {
-						return static_cast<Value>(value);
-					}
-					else if constexpr (std::is_same_v<Storage, std::vector<std::string>> && std::is_convertible_v<std::vector<std::string>, Value>) {
-						return static_cast<Value>(value);
+				[](auto&& storage) -> T {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, Number>) {
+						return std::visit(
+							[](auto&& arithmetic) -> T {
+								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
+									throw std::runtime_error("invalid arithmetic type");
+								}
+								else {
+									return static_cast<T>(arithmetic);
+								}
+							},
+							storage
+						);
 					}
 					else {
-						return std::nullopt;
+						throw std::runtime_error("incompatible type or empty storage");
 					}
 				},
-				it->second
+				m_storage
 			);
 
 		}
 
+		template <std::integral T>
+		T Get() const {
+			return std::visit(
+				[](auto&& storage) -> T {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, Number>) {
+						return std::visit(
+							[](auto&& arithmetic) -> T {
+								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
+									throw std::runtime_error("invalid arithmetic type");
+								}
+								else {
+									return static_cast<T>(arithmetic);
+								}
+							},
+							storage
+						);
+					}
+					else {
+						throw std::runtime_error("incompatible type or empty storage");
+					}
+				},
+				m_storage
+			);
+
+		}
+
+		template <std::integral T>
+		T GetOr(T&& fallback) {
+			return std::visit(
+				[fallback](auto&& storage) -> T {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, Number>) {
+						return std::visit(
+							[fallback](auto&& arithmetic) -> T {
+								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
+									return fallback;
+								}
+								else {
+									return static_cast<T>(arithmetic);
+								}
+							},
+							storage
+						);
+					}
+					else {
+						return fallback;
+					}
+				},
+				m_storage
+			);
+
+		}
+
+		template <std::integral T>
+		T GetOr(T&& fallback) const {
+			return std::visit(
+				[fallback](auto&& storage) -> T {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, Number>) {
+						return std::visit(
+							[fallback](auto&& arithmetic) -> T {
+								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
+									return fallback;
+								}
+								else {
+									return static_cast<T>(arithmetic);
+								}
+							},
+							storage
+						);
+					}
+					else {
+						return fallback;
+					}
+				},
+				m_storage
+			);
+
+		}
+
+		template <class T>
+		T& Get() {
+			return std::visit(
+				[](auto&& storage) -> T& {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(*storage);
+					}
+					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else {
+						throw std::runtime_error("incompatible type or empty storage");
+					}
+				},
+				m_storage
+			);
+		}
+
+
+		template <class T>
+		T const& Get() const {
+			return std::visit(
+				[](auto&& storage) -> T const& {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(*storage);
+					}
+					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(storage);
+					}
+					else {
+						throw std::runtime_error("incompatible type or empty storage");
+					}
+				},
+				m_storage
+			);
+		}
+
+
+		template <class T>
+		T& GetOr(T&& fallback) {
+			return std::visit(
+				[fallback](auto&& storage) -> T& {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(*storage);
+					}
+					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else {
+						return fallback;
+					}
+				},
+				m_storage
+			);
+		}
+
+
+		template <class T>
+		T const& GetOr(T&& fallback) const {
+			return std::visit(
+				[&fallback](auto&& storage) -> T const& {
+					using Type = std::decay_t<decltype(storage)>;
+					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
+						return storage.data();
+					}
+					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(*storage);
+					}
+					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(storage);
+					}
+					else {
+						return fallback;
+					}
+				},
+				m_storage
+			);
+		}
+
+		void Set();
+		void Set(std::string_view str);
+		void Set(Number const& num);
+		void Set(std::shared_ptr<ConfigNode> const& node);
+
+		void Set(Array const& array);
+		void Set(Array&& array);
+
+		template <std::integral T>
+		void Set(T&& num) {
+			if constexpr (std::is_same_v<std::decay_t<T>, bool>) {
+				m_storage.emplace<Number>(std::in_place_type<std::uintmax_t>, std::forward<T>(num));
+			}
+			else if constexpr (std::is_floating_point_v<std::decay_t<T>>) {
+				m_storage.emplace<Number>(std::in_place_type<double>, std::forward<T>(num));
+			}
+			else if constexpr (std::is_unsigned_v<std::decay_t<T>>) {
+				m_storage.emplace<Number>(std::in_place_type<uintmax_t>, std::forward<T>(num));
+			}
+			else if constexpr (std::is_signed_v<std::decay_t<T>>) {
+				m_storage.emplace<Number>(std::in_place_type<intmax_t>, std::forward<T>(num));
+			}
+			else {
+				throw std::invalid_argument("invalid integral type");
+			}
+		}
+
+		Value& operator[](std::string const& path);
+		Value& operator[](char const* path);
+		ArrayElement& operator[](std::size_t index);
+
+		Value const& operator[](std::string const& path) const;
+		Value const& operator[](char const* path) const;
+		ArrayElement const& operator[](std::size_t index) const;
+
 	};
+
 }

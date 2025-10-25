@@ -10,82 +10,150 @@ import windows_vulkan;
 import windows_opengl;
 #endif // WIN32
 
+import config.yaml;
+import defer;
+
+/*
+*	helper macros to call internal implementation object
+*/
+
+#if defined(_WIN32) || defined(_WIN64)
+#define INVOKE_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::vulkan::WindowsVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::opengl::WindowsOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::d3d12::D3D12Renderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		; \
+	)\
+
+#define RETURN_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::vulkan::WindowsVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::opengl::WindowsOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::d3d12::D3D12Renderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		{}; \
+	)\
+
+#define RETURN_PTR_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::vulkan::WindowsVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::opengl::WindowsOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::windows::d3d12::D3D12Renderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		nullptr; \
+	)\
+
+#elif defined(__linux__)
+#define INVOKE_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::vulkan::LinuxVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::opengl::LinuxOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		; \
+	)\
+
+#define RETURN_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::vulkan::LinuxVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::opengl::LinuxOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		{}; \
+	)\
+
+#define RETURN_PTR_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::vulkan::LinuxVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::linux::opengl::LinuxOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		nullptr; \
+	)\
+
+#elif defined(__APPLE__) && defined(__MACH__)
+#define INVOKE_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::vulkan::AppleVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::opengl::AppleOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::metal::MetalRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		; \
+	)\
+
+#define RETURN_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::vulkan::AppleVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::opengl::AppleOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::metal::MetalRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		{}; \
+	)\
+
+#define RETURN_PTR_RENDERER_FUNC(BACKEND, FUNC, OBJ, ...)\
+	FYUU_DECLARE_BACKEND_RETURN_SWITCH(\
+		BACKEND, \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::vulkan::AppleVulkanRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::opengl::AppleOpenGLRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		&FYUU_CALL_BACKEND_OBJ_MEMBER(fyuu_engine::apple::metal::MetalRenderer, FUNC, OBJ, __VA_OPT__(__VA_ARGS__)), \
+		nullptr; \
+	)\
+
+#endif
+
 namespace fyuu_engine::application {
-
-	/*
-	*	helper macros to call implementation object
-	*/
-#ifdef _WIN32
-	#define CALL_BACKEND_FUNC(FUNC_NAME, BACKEND, IMPL, ...) \
-	switch (static_cast<API>(BACKEND)) { \
-		case API::Vulkan: \
-			static_cast<windows::vulkan::WindowsVulkanRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-			break;\
-		case API::OpenGL:\
-			static_cast<windows::opengl::WindowsOpenGLRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-			break;\
-		case API::DirectX12: \
-			static_cast<windows::d3d12::D3D12Renderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-			break;\
-		default: \
-			break; \
-	}
-	#define RETURN_BACKEND_FUNC(FUNC_NAME, DEFAULT_RETURN_STATEMENT, BACKEND, IMPL, ...) \
-	switch (static_cast<API>(BACKEND)) { \
-		case API::Vulkan: \
-			return static_cast<windows::vulkan::WindowsVulkanRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		case API::OpenGL:\
-			return static_cast<windows::opengl::WindowsOpenGLRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		case API::DirectX12: \
-			return static_cast<windows::d3d12::D3D12Renderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		default: \
-			DEFAULT_RETURN_STATEMENT; \
-	}
-	#define RETURN_BACKEND_FUNC_PTR(FUNC_NAME, DEFAULT_RETURN_STATEMENT, BACKEND, IMPL, ...) \
-	switch (static_cast<API>(BACKEND)) { \
-		case API::Vulkan: \
-			return &static_cast<windows::vulkan::WindowsVulkanRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		case API::OpenGL:\
-			return &static_cast<windows::opengl::WindowsOpenGLRenderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		case API::DirectX12: \
-			return &static_cast<windows::d3d12::D3D12Renderer*>(IMPL)->FUNC_NAME(__VA_OPT__(__VA_ARGS__)); \
-		default: \
-			DEFAULT_RETURN_STATEMENT; \
-	}
-#else
-	/*
-	*	TODO: other platform, can duplicate the definition above
-	*/
-
-#endif // _WIN32
 
 	static std::atomic_flag s_app_mutex;
 	static bool s_app_running;
 
 	using RendererInterface = Renderer;
 	using RenderingThreads = std::array<std::optional<concurrency::Worker>, 20u>;
+	
+	/*
+	*	TODO: add json config support
+	*/
+
+	using Config = std::variant<
+		std::monostate,
+		config::YAMLConfig
+	>;
 
 	static ILogger* InitDefaultLogger(
 		std::optional<logger::simple_logger::FileSink>& opt_main_sink,
+		bool write_to_file,
+		std::size_t max_size,
 		std::optional<logger::simple_logger::Logger>& opt_logger,
 		std::optional<SimpleLoggerAdapter>& opt_adapter
 	) {
 
 		using namespace logger::simple_logger;
 
-		auto& main_sink = opt_main_sink.emplace("/logs/application.log");
-		LoggingCore::Instance()->RegisterSink("main_sink", &main_sink);
+		if (write_to_file) {
 
-		auto& logger = opt_logger.emplace("main_sink");
-		auto& adapter = opt_adapter.emplace(&logger);
+			auto& main_sink = opt_main_sink.emplace("./logs/application.log", max_size);
+			LoggingCore::Instance()->RegisterSink("main_sink", &main_sink);
+			auto& logger = opt_logger.emplace("main_sink");
+			auto& adapter = opt_adapter.emplace(&logger);
 
-		return &adapter;
+			return &adapter;
+
+		}
+		else {
+
+			auto& logger = opt_logger.emplace("");
+			auto& adapter = opt_adapter.emplace(&logger);
+
+			return &adapter;
+
+		}
 
 	}
 
-	static std::size_t LaunchRenderingThreads(ApplicationConfig const& config, RenderingThreads& threads) {
+	static std::size_t LaunchRenderingThreads(std::int32_t thread_count, RenderingThreads& threads) {
 
-		std::size_t launch_count = (std::min)(config.rendering_threads, threads.size());
+		std::size_t launch_count = (std::min)(
+			thread_count < 0 ? static_cast<std::size_t>(std::thread::hardware_concurrency()) : static_cast<std::size_t>(thread_count),
+			threads.size()
+			);
 
 		for (std::size_t i = 0; i < launch_count; ++i) {
 			threads[i].emplace();
@@ -173,11 +241,34 @@ namespace fyuu_engine::application {
 
 	template <class Window, class Renderer>
 	RendererInterface CreateRenderer(
-		ApplicationConfig const& config, 
+		Config const& backend_config, 
 		core::IRendererLogger* logger, 
 		Window&& main_window, 
 		Renderer&& renderer
 	) {
+
+		/*
+		*	load renderer configuration
+		*/
+
+		API backend = API::Vulkan;
+		std::string_view app_name;
+
+		std::visit(
+			[&backend, &app_name](auto&& config) {
+
+				using T = std::decay_t<decltype(config)>;
+				if constexpr (std::is_same_v<T, config::YAMLConfig>) {
+					backend = static_cast<API>(config["graphics"]["backend"].GetOr<std::uint32_t>(1u));
+					app_name = config["engine"]["app_name"].Get<std::string>();
+				}
+				else {
+					throw std::runtime_error("unsupported config format for renderer");
+				}
+
+			},
+			backend_config
+		);
 
 #ifdef WIN32
 		std::variant<
@@ -187,7 +278,7 @@ namespace fyuu_engine::application {
 			windows::opengl::WindowsOpenGLRendererBuilder
 		> builder_variant;
 
-		switch (config.backend) {
+		switch (backend) {
 		case API::DirectX12:
 		{
 			auto& impl = renderer.emplace<std::optional<windows::d3d12::D3D12Renderer>>();
@@ -206,7 +297,7 @@ namespace fyuu_engine::application {
 				.SetTargetWindow(&main_window)
 				.SetLogger(logger)
 				.SetEngineName("Fyuu Engine")
-				.SetApplicationName(config.application_name)
+				.SetApplicationName(app_name)
 				.Build(impl);
 			return RendererInterface(&impl, API::Vulkan);
 		}
@@ -230,11 +321,11 @@ namespace fyuu_engine::application {
 	}
 
 	static bool BeginFrame(RendererInterface& renderer) {
-		RETURN_BACKEND_FUNC(BeginFrame, return false, renderer.GetBackend(), renderer.GetImplementation());
+		RETURN_RENDERER_FUNC(renderer.GetBackend(), BeginFrame, renderer.GetImplementation());
 	}
 
 	static void EndFrame(RendererInterface& renderer) {
-		CALL_BACKEND_FUNC(EndFrame, renderer.GetBackend(), renderer.GetImplementation());
+		INVOKE_RENDERER_FUNC(renderer.GetBackend(), EndFrame, renderer.GetImplementation());
 	}
 
 #ifdef _WIN32
@@ -254,11 +345,11 @@ namespace fyuu_engine::application {
 
 
 	static OutputTarget OutputTargetOfCurrentFrame(RendererInterface& renderer) {
-		RETURN_BACKEND_FUNC(OutputTargetOfCurrentFrame, return std::monostate{}, renderer.GetBackend(), renderer.GetImplementation());
+		RETURN_RENDERER_FUNC(renderer.GetBackend(), OutputTargetOfCurrentFrame, renderer.GetImplementation());
 	}
 
 	static void* GetCommandObject(RendererInterface& renderer) {
-		RETURN_BACKEND_FUNC_PTR(GetCommandObject, return nullptr, renderer.GetBackend(), renderer.GetImplementation());
+		RETURN_PTR_RENDERER_FUNC(renderer.GetBackend(), GetCommandObject, renderer.GetImplementation());
 	}
 
 	template <class Window>
@@ -299,22 +390,23 @@ namespace fyuu_engine::application {
 				output_target
 			);
 
-			auto Render = [app, &renderer, output_target_impl_ptr]() {
+			auto Tick = [app, &renderer, output_target_impl_ptr]() {
 				CommandObject command_object(GetCommandObject(renderer), output_target_impl_ptr, renderer.GetBackend());
-				app->OnUpdate(std::this_thread::get_id(), renderer);
-				app->OnRender(std::this_thread::get_id(), command_object);
+				auto id = std::this_thread::get_id();
+				app->OnUpdate(id, renderer);
+				app->OnRender(id, command_object);
 				};
 
 			for (std::size_t i = 0; i < threads_count; ++i) {
 				threads[i]->SubmitTask(
-					[&latch, &Render]() {
-						Render();
+					[&latch, &Tick]() {
+						Tick();
 						latch.count_down();
 					}
 				);
 			}
 
-			Render();
+			Tick();
 			latch.arrive_and_wait();
 
 			EndFrame(renderer);
@@ -328,27 +420,72 @@ namespace fyuu_engine::application {
 		if (s_app_mutex.test_and_set(std::memory_order::acq_rel)) {
 			return -1;
 		}
+		util::Defer gc(
+			[]() {
+				s_app_mutex.clear(std::memory_order::release);
+			}
+		);
 		
 		std::optional<logger::simple_logger::FileSink> simple_logger_sink;
 		std::optional<logger::simple_logger::Logger> simple_logger;
 		std::optional<SimpleLoggerAdapter> adapter;
 		std::array<std::optional<concurrency::Worker>, 20u> threads;
-		static std::size_t rendering_threads_count;
 		ApplicationConfig config = app->GetConfig();
+
+		std::string_view app_name;
+		std::uint32_t width;
+		std::uint32_t height;
+		LogLevel log_level;
+		bool write_to_file;
+		std::size_t max_log_size;
+		std::int32_t thread_count;
+
+		/*
+		*	load configuration
+		*/
+
+		Config backend_config;
+
+		switch (config.format) {
+		case ApplicationConfig::ConfigFormat::YAML:
+		{
+			config::YAMLConfig& yaml_config = backend_config.emplace<config::YAMLConfig>();
+			yaml_config.Open(config.path);
+			app_name = yaml_config["engine"]["app_name"].Get<std::string>();
+			width = yaml_config["graphics"]["resolution"]["width"].Get<std::uint32_t>();
+			height = yaml_config["graphics"]["resolution"]["height"].Get<std::uint32_t>();
+			log_level = static_cast<LogLevel>(yaml_config["logging"]["level"].Get<std::uint32_t>());
+			write_to_file = yaml_config["logging"]["write_to_file"].Get<bool>();
+			max_log_size = yaml_config["logging"]["max_file_size"].Get<std::size_t>();
+			thread_count = yaml_config["performance"]["thread_count"].Get<std::int32_t>();
+			break;
+		}
+		default:
+			break;
+		}
 
 		/*
 		*	initialize logger
 		*/
 
-		ILogger* custom_logger = app->CustomLogger();
-		ILogger* logger = custom_logger ? custom_logger : InitDefaultLogger(simple_logger_sink, simple_logger, adapter);
+		ILogger* custom_logger = app->CustomLogger(log_level, write_to_file, max_log_size);
+		ILogger* logger = 
+			custom_logger ? 
+			custom_logger : 
+			InitDefaultLogger(
+				simple_logger_sink,
+				write_to_file,
+				max_log_size, 
+				simple_logger, 
+				adapter
+			);
 
 		/*
 		*	create window
 		*/
 
 #ifdef _WIN32
-		windows::WindowsWindow main_window(config.title, config.width, config.height);
+		windows::WindowsWindow main_window(app_name, width, height);
 		auto event_subscriptions = SubscribeEvent(main_window, app);
 #endif // _WIN32
 
@@ -366,14 +503,20 @@ namespace fyuu_engine::application {
 			std::optional<windows::opengl::WindowsOpenGLRenderer>
 		> renderer;
 #endif // _WIN32
-		RendererInterface renderer_interface = CreateRenderer(config, &renderer_logger, main_window, renderer);
-		std::size_t threads_count = LaunchRenderingThreads(config, threads);
+		RendererInterface renderer_interface = CreateRenderer(
+			backend_config, 
+			&renderer_logger,
+			main_window, 
+			renderer
+		);
+		std::size_t threads_count = LaunchRenderingThreads(
+			thread_count,
+			threads
+		);
 
 		logger->Info(std::source_location::current(), "Application is running");
 
 		MainLoop(main_window, renderer_interface, threads, threads_count, app);
-
-		s_app_mutex.clear(std::memory_order::release);
 
 		return 0;
 
@@ -391,30 +534,18 @@ namespace fyuu_engine::application {
 		s_app_running = false;
 	}
 
-	ApplicationConfig::ApplicationConfig(Fyuu_ApplicationConfig const& config) noexcept
-		: application_name(config.application_name),
-		title(config.title),
-		width(config.width),
-		height(config.height),
-		rendering_threads(config.rendering_threads),
-		backend(static_cast<API>(config.backend)) {
-
+	ApplicationConfig::ApplicationConfig(Fyuu_ApplicationConfig const& c_config)
+		: path(c_config.path ? std::filesystem::path(c_config.path) : std::filesystem::path()) {
 	}
 
-	ILogger* IApplication::CustomLogger() {
+	ILogger* IApplication::CustomLogger(LogLevel level, bool write_to_file, std::size_t max_size) {
 		return nullptr;
 	}
 
 	ApplicationConfig IApplication::GetConfig() const {
 
 		ApplicationConfig config;
-
-		config.application_name = "Fyuu Engine";
-		config.title = "Fyuu Engine";
-		config.width = 1280u;
-		config.height = 720u;
-		config.rendering_threads = 4u;
-		config.backend = API::Vulkan;
+		config.path = "./config/app_config.yaml";
 
 		return config;
 	}

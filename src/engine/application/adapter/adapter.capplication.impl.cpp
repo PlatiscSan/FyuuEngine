@@ -3,11 +3,12 @@ import std;
 
 namespace fyuu_engine::application {
 	CApplicationAdapter::CApplicationAdapter(Fyuu_IApplication* app)
-		: m_app(app), m_logger(m_app->CustomLogger ? m_app->CustomLogger() : nullptr) {
+		: m_app(app), m_logger() {
 	}
 
-	ILogger* CApplicationAdapter::CustomLogger() {
-		return m_logger ? &m_logger : IApplication::CustomLogger();
+	ILogger* CApplicationAdapter::CustomLogger(LogLevel level, bool write_to_file, std::size_t max_size) {
+		m_logger.emplace(m_app->CustomLogger ? m_app->CustomLogger(static_cast<Fyuu_LogLevel>(level), write_to_file, max_size) : nullptr);
+		return *m_logger ? &*m_logger : IApplication::CustomLogger(level, write_to_file, max_size);
 	}
 
 	ApplicationConfig CApplicationAdapter::GetConfig() const {
