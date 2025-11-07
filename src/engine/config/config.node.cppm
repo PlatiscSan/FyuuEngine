@@ -10,6 +10,10 @@ namespace fyuu_engine::config {
 		double
 	>;
 
+	export template <class T> concept Arithmetic = requires() {
+		requires std::is_arithmetic_v<T>;
+	};
+
 	export class ConfigNode {
 	public:
 		class Value;
@@ -61,7 +65,7 @@ namespace fyuu_engine::config {
 
 		StorageType GetStorageType() const noexcept;
 
-		template <std::integral T>
+		template <Arithmetic T>
 		T Get() {
 			return std::visit(
 				[](auto&& storage) -> T {
@@ -88,7 +92,7 @@ namespace fyuu_engine::config {
 
 		}
 
-		template <std::integral T>
+		template <Arithmetic T>
 		T Get() const {
 			return std::visit(
 				[](auto&& storage) -> T {
@@ -115,7 +119,7 @@ namespace fyuu_engine::config {
 
 		}
 
-		template <std::integral T>
+		template <Arithmetic T>
 		T GetOr(T&& fallback) {
 			return std::visit(
 				[fallback](auto&& storage) -> T {
@@ -142,7 +146,7 @@ namespace fyuu_engine::config {
 
 		}
 
-		template <std::integral T>
+		template <Arithmetic T>
 		T GetOr(T&& fallback) const {
 			return std::visit(
 				[fallback](auto&& storage) -> T {
@@ -223,6 +227,9 @@ namespace fyuu_engine::config {
 					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(storage);
 					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
+						return storage.data();
+					}
 					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(*storage);
 					}
@@ -271,7 +278,7 @@ namespace fyuu_engine::config {
 		void Set(Array const& array);
 		void Set(Array&& array);
 
-		template <std::integral T>
+		template <Arithmetic T>
 		void Set(T&& num) {
 			if constexpr (std::is_same_v<std::decay_t<T>, bool>) {
 				m_storage.emplace<Number>(std::in_place_type<std::uintmax_t>, std::forward<T>(num));

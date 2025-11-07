@@ -54,7 +54,7 @@ namespace fyuu_engine::config {
 
 		}
 
-		(*node)[key].Set(array);
+		(*node)[key].Set(std::move(array));
 
 	}
 
@@ -99,13 +99,6 @@ namespace fyuu_engine::config {
 			);
 		}
 
-	}
-
-	void YAMLConfig::ProceedConfigNode(ConfigNode::Value const& val, YAML::Node& yaml_node, std::string const& key, auto& stack) {
-		auto& node = val.Get<ConfigNode>();
-		YAML::Node next_yaml_node(YAML::NodeType::Map);
-		yaml_node[key] = next_yaml_node;
-		stack.push_back({ node.begin(),node.end(), next_yaml_node });
 	}
 
 	void YAMLConfig::ParseYAML(YAML::Node const& yaml_root, ConfigNode& root) {
@@ -165,7 +158,7 @@ namespace fyuu_engine::config {
 
 	}
 
-	void YAMLConfig::ParseConfig(ConfigNode const& root, YAML::Node& yaml_root) {
+	void YAMLConfig::SerializeConfig(ConfigNode const& root, YAML::Node& yaml_root) {
 
 		struct FrameStack {
 			ConfigNode::ConstIterator begin;
@@ -187,11 +180,11 @@ namespace fyuu_engine::config {
 
 				switch (val.GetStorageType()) {
 				case ConfigNode::Value::StorageType::Number:
-					yaml_node[key] = val.GetOr(0);
+					yaml_node[key] = val.GetOr(0.0f);
 					break;
 
 				case ConfigNode::Value::StorageType::String:
-					yaml_node[key] = val.GetOr("");
+					yaml_node[key] = val.GetOr(std::string());
 					break;
 
 				case ConfigNode::Value::StorageType::Array:
@@ -235,10 +228,26 @@ namespace fyuu_engine::config {
 		}
 
 		YAML::Node yaml_config(YAML::NodeType::Map);
-		YAMLConfig::ParseConfig(m_root, yaml_config);
+		YAMLConfig::SerializeConfig(m_root, yaml_config);
 
 		std::ofstream out(file_path);
 		out << yaml_config;
+
+	}
+
+	std::string YAMLConfig::ToStringImpl() const {
+
+		YAML::Node yaml_config(YAML::NodeType::Map);
+		YAMLConfig::SerializeConfig(m_root, yaml_config);
+
+		YAML::Emitter emitter;
+		emitter << yaml_config;
+
+		if (!emitter.good()) {
+			throw std::runtime_error("Failed to convert YAML node to string");
+		}
+
+		return emitter.c_str();
 
 	}
 

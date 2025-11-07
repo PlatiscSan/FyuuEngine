@@ -14,7 +14,11 @@ namespace fyuu_engine::config {
 		}
 
 		void SaveAs(std::filesystem::path const& file_path) const {
-			static_cast<DerivedConfig*>(this)->SaveAsImpl(file_path);
+			static_cast<DerivedConfig const*>(this)->SaveAsImpl(file_path);
+		}
+
+		std::string ToString() const {
+			return static_cast<DerivedConfig const*>(this)->ToStringImpl();
 		}
 
 		ConfigNode::Value& operator[](std::string const& key) {
