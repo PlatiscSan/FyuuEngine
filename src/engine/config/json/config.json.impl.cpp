@@ -40,13 +40,20 @@ namespace fyuu_engine::config {
 
 		struct StackFrame {
 			std::string path;
-			nlohmann::json const& json_node;
+			nlohmann::json const* json_node;
 			util::PointerWrapper<ConfigNode> config_node;
 		};
 
-		std::vector<StackFrame> stack;
+		std::array<std::byte, 8192u> buffer{};
+		std::pmr::monotonic_buffer_resource pool(
+			buffer.data(),
+			buffer.size(),
+			std::pmr::null_memory_resource()
+		);
 
-		stack.push_back({ "", json_root, &root });
+		std::pmr::vector<StackFrame> stack(&pool);
+
+		stack.push_back({ "", &json_root, &root });
 
 		while (!stack.empty()) {
 
@@ -57,7 +64,7 @@ namespace fyuu_engine::config {
 				return;
 			}
 
-			for (auto const& json_pair : current_json.items()) {
+			for (auto const& json_pair : current_json->items()) {
 
 				std::string const& key = json_pair.key();
 				nlohmann::json const& value_node = json_pair.value();
@@ -67,7 +74,7 @@ namespace fyuu_engine::config {
 				case nlohmann::json::value_t::object:
 					nested_config = std::make_shared<ConfigNode>();
 					(*current_node)[key].Set(nested_config);
-					stack.push_back({ key, value_node, nested_config });
+					stack.push_back({ key, &value_node, nested_config });
 					break;
 
 				case nlohmann::json::value_t::array:
@@ -155,11 +162,18 @@ namespace fyuu_engine::config {
 		struct FrameStack {
 			ConfigNode::ConstIterator begin;
 			ConfigNode::ConstIterator end;
-			nlohmann::json& json_node;
+			nlohmann::json* json_node;
 		};
 
-		std::vector<FrameStack> stack;
-		stack.push_back({ root.begin(), root.end(), json_root });
+		std::array<std::byte, 8192u> buffer{};
+		std::pmr::monotonic_buffer_resource pool(
+			buffer.data(),
+			buffer.size(),
+			std::pmr::null_memory_resource()
+		);
+
+		std::pmr::vector<FrameStack> stack(&pool);
+		stack.push_back({ root.begin(), root.end(), &json_root });
 
 		while (!stack.empty()) {
 
@@ -172,19 +186,19 @@ namespace fyuu_engine::config {
 
 				switch (val.GetStorageType()) {
 				case ConfigNode::Value::StorageType::Number:
-					json_node[key] = val.GetOr(0.0f);
+					(*json_node)[key] = val.GetOr(0.0f);
 					break;
 
 				case ConfigNode::Value::StorageType::String:
-					json_node[key] = val.GetOr(std::string());
+					(*json_node)[key] = val.GetOr(std::string());
 					break;
 
 				case ConfigNode::Value::StorageType::Array:
-					JSONConfig::ProceedConfigArray(val, json_node, key);
+					JSONConfig::ProceedConfigArray(val, *json_node, key);
 					break;
 
 				case ConfigNode::Value::StorageType::Node:
-					JSONConfig::ProceedConfigNode(val, json_node, key, stack);
+					JSONConfig::ProceedConfigNode(val, *json_node, key, stack);
 					break;
 				}
 			}

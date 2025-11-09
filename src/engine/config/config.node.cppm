@@ -201,13 +201,13 @@ namespace fyuu_engine::config {
 			return std::visit(
 				[](auto&& storage) -> T const& {
 					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<std::string, T>) {
 						return static_cast<T const&>(storage);
 					}
-					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<ConfigNode, T>) {
 						return static_cast<T const&>(*storage);
 					}
-					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
+					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Array, T>) {
 						return static_cast<T const&>(storage);
 					}
 					else {
@@ -274,6 +274,8 @@ namespace fyuu_engine::config {
 		void Set(std::string_view str);
 		void Set(Number const& num);
 		void Set(std::shared_ptr<ConfigNode> const& node);
+
+		void AsNode();
 
 		void Set(Array const& array);
 		void Set(Array&& array);

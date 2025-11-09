@@ -20,9 +20,8 @@ namespace fyuu_engine::config {
 
 		static void ProceedConfigNode(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key, auto& stack) {
 			auto& node = val.Get<ConfigNode>();
-			nlohmann::json next_json_node = nlohmann::json::object();
-			json_node[key] = next_json_node;
-			stack.push_back({ node.begin(),node.end(), next_json_node });
+			json_node[key] = nlohmann::json::object();
+			stack.push_back({ node.begin(),node.end(), &json_node[key] });
 		}
 
 		static void SerializeConfig(ConfigNode const& root, nlohmann::json& json_root);

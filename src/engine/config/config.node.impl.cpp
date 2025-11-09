@@ -80,6 +80,10 @@ namespace fyuu_engine::config {
 		m_storage.emplace<std::shared_ptr<ConfigNode>>(node);
 	}
 
+	void ConfigNode::Value::AsNode() {
+		Set(std::make_shared<ConfigNode>());
+	}
+
 	void ConfigNode::Value::Set(Array const& array) {
 		m_storage.emplace<Array>(array);
 	}
