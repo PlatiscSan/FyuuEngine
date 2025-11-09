@@ -12,18 +12,6 @@ export namespace fyuu_engine::util {
 
 	};
 
-	template <class T>
-	struct IsSharedPtr : std::false_type {};
-
-	template <class T>
-	struct IsSharedPtr<std::shared_ptr<T>> : std::true_type {};
-
-	template <class T>
-	struct IsWeakPtr : std::false_type {};
-
-	template <class T>
-	struct IsWeakPtr<std::weak_ptr<T>> : std::true_type {};
-
 	/// @brief A smart pointer-like wrapper that can hold a raw pointer, std::shared_ptr, or std::weak_ptr to an object of type T, providing unified pointer semantics and access methods.
 	/// @tparam T The type of the object to which the pointer refers.
 	template <class T>
@@ -446,11 +434,45 @@ export namespace fyuu_engine::util {
 				return static_cast<T*>(this)->shared_from_this();
 			}
 			catch (std::bad_weak_ptr const&) {
-				///	caller must guarantee the lifetime of this connection not managed by std::shared_ptr
+				///	caller must guarantee the lifetime of this instance not managed by std::shared_ptr
 				///
 				return static_cast<T*>(this);
 			}
 		}
+	};
+
+	/*
+	*	Useful pointer traits
+	*/
+
+	export template <class T> struct PointerTraits {
+		static constexpr bool is_pointer = false;
+		static constexpr bool is_smart_pointer = false;
+		using ElementType = void;
+	};
+
+	export template <class T> struct PointerTraits<T*> {
+		static constexpr bool is_pointer = true;
+		static constexpr bool is_smart_pointer = false;
+		using ElementType = T;
+	};
+
+	export template <class T, class Deleter> struct PointerTraits<std::unique_ptr<T, Deleter>> {
+		static constexpr bool is_pointer = true;
+		static constexpr bool is_smart_pointer = true;
+		using ElementType = T;
+	};
+
+	export template <class T> struct PointerTraits<std::shared_ptr<T>> {
+		static constexpr bool is_pointer = true;
+		static constexpr bool is_smart_pointer = true;
+		using ElementType = T;
+	};
+
+	export template <class T> struct PointerTraits<util::PointerWrapper<T>> {
+		static constexpr bool is_pointer = true;
+		static constexpr bool is_smart_pointer = true;
+		using ElementType = T;
 	};
 
 }
