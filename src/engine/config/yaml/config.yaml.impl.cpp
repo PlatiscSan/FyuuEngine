@@ -235,7 +235,7 @@ namespace fyuu_engine::config {
 
 	}
 
-	std::string YAMLConfig::ToStringImpl() const {
+	std::string YAMLConfig::DumpImpl() const {
 
 		YAML::Node yaml_config(YAML::NodeType::Map);
 		YAMLConfig::SerializeConfig(m_root, yaml_config);
@@ -249,6 +249,11 @@ namespace fyuu_engine::config {
 
 		return emitter.c_str();
 
+	}
+
+	void YAMLConfig::ParseImpl(std::string_view dumped) {
+		YAML::Node yaml_root = YAML::Load(dumped.data());
+		YAMLConfig::ParseYAML(yaml_root, m_root);
 	}
 
 }

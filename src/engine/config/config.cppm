@@ -17,8 +17,12 @@ namespace fyuu_engine::config {
 			static_cast<DerivedConfig const*>(this)->SaveAsImpl(file_path);
 		}
 
-		std::string ToString() const {
-			return static_cast<DerivedConfig const*>(this)->ToStringImpl();
+		void Parse(std::string_view dumped) {
+			static_cast<DerivedConfig*>(this)->ParseImpl(dumped);
+		}
+
+		std::string Dump() const {
+			return static_cast<DerivedConfig const*>(this)->DumpImpl();
 		}
 
 		ConfigNode::Value& operator[](std::string const& key) {

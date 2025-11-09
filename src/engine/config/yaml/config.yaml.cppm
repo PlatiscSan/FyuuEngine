@@ -33,7 +33,9 @@ namespace fyuu_engine::config {
 
 		void SaveAsImpl(std::filesystem::path const& file_path) const;
 
-		std::string ToStringImpl() const;
+		std::string DumpImpl() const;
+
+		void ParseImpl(std::string_view dumped);
 	};
 
 }

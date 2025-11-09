@@ -238,7 +238,7 @@ namespace fyuu_engine::config {
 
 	}
 
-	std::string JSONConfig::ToStringImpl() const {
+	std::string JSONConfig::DumpImpl() const {
 
 		nlohmann::json json_node = nlohmann::json::object();
 
@@ -246,6 +246,11 @@ namespace fyuu_engine::config {
 
 		return json_node.dump(4);
 
+	}
+
+	void JSONConfig::ParseImpl(std::string_view dumped) {
+		nlohmann::json data = nlohmann::json::parse(dumped);
+		JSONConfig::ParseJSON(data, m_root);
 	}
 
 }
