@@ -55,7 +55,7 @@ namespace fyuu_engine::config {
 			Number,
 			std::string, 
 			Array,
-			std::shared_ptr<ConfigNode>
+			std::unique_ptr<ConfigNode>
 		>;
 
 		Storage m_storage;
@@ -181,7 +181,7 @@ namespace fyuu_engine::config {
 					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(storage);
 					}
-					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<typename std::unique_ptr<ConfigNode>::element_type, T>) {
 						return static_cast<T&>(*storage);
 					}
 					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
@@ -204,7 +204,7 @@ namespace fyuu_engine::config {
 					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<std::string, T>) {
 						return static_cast<T const&>(storage);
 					}
-					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<ConfigNode, T>) {
+					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<ConfigNode, T>) {
 						return static_cast<T const&>(*storage);
 					}
 					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Array, T>) {
@@ -230,7 +230,7 @@ namespace fyuu_engine::config {
 					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
 						return storage.data();
 					}
-					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(*storage);
 					}
 					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
@@ -256,7 +256,7 @@ namespace fyuu_engine::config {
 					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
 						return storage.data();
 					}
-					else if constexpr (std::is_same_v<Type, std::shared_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
+					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<Type, T>) {
 						return static_cast<T const&>(*storage);
 					}
 					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Type, T>) {
@@ -273,9 +273,8 @@ namespace fyuu_engine::config {
 		void Set();
 		void Set(std::string_view str);
 		void Set(Number const& num);
-		void Set(std::shared_ptr<ConfigNode> const& node);
 
-		void AsNode();
+		ConfigNode& AsNode();
 
 		void Set(Array const& array);
 		void Set(Array&& array);

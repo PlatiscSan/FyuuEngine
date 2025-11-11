@@ -53,7 +53,7 @@ namespace fyuu_engine::config {
 				else if constexpr (std::is_same_v<Array, Type>) {
 					return ConfigNode::Value::StorageType::Array;
 				}
-				else if constexpr (std::is_same_v<std::shared_ptr<ConfigNode>, Type>) {
+				else if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, Type>) {
 					return ConfigNode::Value::StorageType::Node;
 				}
 				else {
@@ -76,12 +76,9 @@ namespace fyuu_engine::config {
 		m_storage.emplace<Number>(num);
 	}
 
-	void ConfigNode::Value::Set(std::shared_ptr<ConfigNode> const& node) {
-		m_storage.emplace<std::shared_ptr<ConfigNode>>(node);
-	}
-
-	void ConfigNode::Value::AsNode() {
-		Set(std::make_shared<ConfigNode>());
+	ConfigNode& ConfigNode::Value::AsNode() {
+		auto& node = m_storage.emplace<std::unique_ptr<ConfigNode>>(std::make_unique<ConfigNode>());
+		return *node;
 	}
 
 	void ConfigNode::Value::Set(Array const& array) {
@@ -95,7 +92,7 @@ namespace fyuu_engine::config {
 	ConfigNode::Value& ConfigNode::Value::operator[](std::string const& path) {
 		return std::visit(
 			[&path](auto&& storage) -> Value& {
-				if constexpr (std::is_same_v<std::shared_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
+				if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
 					return (*storage)[path];
 				}
 				else {
@@ -109,7 +106,7 @@ namespace fyuu_engine::config {
 	ConfigNode::Value& ConfigNode::Value::operator[](char const* path) {
 		return std::visit(
 			[path](auto&& storage) -> Value& {
-				if constexpr (std::is_same_v<std::shared_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
+				if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
 					return (*storage)[path];
 				}
 				else {
@@ -141,7 +138,7 @@ namespace fyuu_engine::config {
 	ConfigNode::Value  const& ConfigNode::Value::operator[](std::string const& path) const {
 		return std::visit(
 			[&path](auto&& storage) -> Value const& {
-				if constexpr (std::is_same_v<std::shared_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
+				if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
 					return (*storage)[path];
 				}
 				else {
@@ -155,7 +152,7 @@ namespace fyuu_engine::config {
 	ConfigNode::Value const& ConfigNode::Value::operator[](char const* path) const {
 		return std::visit(
 			[path](auto&& storage) -> Value const& {
-				if constexpr (std::is_same_v<std::shared_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
+				if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
 					return (*storage)[path];
 				}
 				else {
