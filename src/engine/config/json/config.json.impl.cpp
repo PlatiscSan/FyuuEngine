@@ -68,13 +68,10 @@ namespace fyuu_engine::config {
 
 				std::string const& key = json_pair.key();
 				nlohmann::json const& value_node = json_pair.value();
-				std::shared_ptr<ConfigNode> nested_config;
 
 				switch (value_node.type()) {
 				case nlohmann::json::value_t::object:
-					nested_config = std::make_shared<ConfigNode>();
-					(*current_node)[key].Set(nested_config);
-					stack.push_back({ key, &value_node, nested_config });
+					stack.push_back({ key, &value_node, &(*current_node)[key].AsNode() });
 					break;
 
 				case nlohmann::json::value_t::array:

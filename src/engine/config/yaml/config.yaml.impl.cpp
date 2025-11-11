@@ -110,7 +110,7 @@ namespace fyuu_engine::config {
 		struct StackFrame {
 			std::string path;
 			YAML::Node yaml_node;
-			util::PointerWrapper<ConfigNode> config_node;
+			ConfigNode* config_node;
 		};
 
 		std::vector<StackFrame> stack;
@@ -129,14 +129,10 @@ namespace fyuu_engine::config {
 			for (auto const& yaml_pair : current_yaml) {
 				auto key = yaml_pair.first.as<std::string>();
 				YAML::Node const& value_node = yaml_pair.second;
-				std::shared_ptr<ConfigNode> nested_config;
 
 				switch (value_node.Type()) {
 				case YAML::NodeType::Map:
-					nested_config = std::make_shared<ConfigNode>();
-					(*current_node)[key].Set(nested_config);
-
-					stack.push_back({ key, value_node, nested_config });
+					stack.push_back({ key, value_node, &(*current_node)[key].AsNode()});
 					break;
 
 				case YAML::NodeType::Scalar:
