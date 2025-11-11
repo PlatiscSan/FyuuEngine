@@ -113,7 +113,14 @@ namespace fyuu_engine::config {
 			ConfigNode* config_node;
 		};
 
-		std::vector<StackFrame> stack;
+		std::array<std::byte, 16384u> buffer{};
+		std::pmr::monotonic_buffer_resource pool(
+			buffer.data(),
+			buffer.size(),
+			std::pmr::null_memory_resource()
+		);
+
+		std::pmr::vector<StackFrame> stack(&pool);
 
 		stack.push_back({ "", yaml_root, &root });
 
@@ -162,7 +169,14 @@ namespace fyuu_engine::config {
 			YAML::Node yaml_node;
 		};
 
-		std::vector<FrameStack> stack;
+		std::array<std::byte, 8192u> buffer{};
+		std::pmr::monotonic_buffer_resource pool(
+			buffer.data(),
+			buffer.size(),
+			std::pmr::null_memory_resource()
+		);
+
+		std::pmr::vector<FrameStack> stack(&pool);
 		stack.push_back({ root.begin(), root.end(), yaml_root });
 
 		while (!stack.empty()) {
