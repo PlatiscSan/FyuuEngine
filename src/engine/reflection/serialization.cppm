@@ -1,8 +1,9 @@
-export module reflection:serialization;
+export module serialization;
 export import config.yaml;
 export import config.json;
+export import reflective;
 import std;
-import :interface;
+
 
 namespace fyuu_engine::reflection {
 
@@ -10,7 +11,113 @@ namespace fyuu_engine::reflection {
 
 		template <class Serializer, class Field>
 		concept HasMakeReflective = requires (Serializer serializer, Field field) {
-			requires ReflectiveType<decltype(Serializer::MakeReflective(field))>;
+			requires ReflectiveConcept<decltype(Serializer::MakeReflective(field))>;
+		};
+
+		template <class T>
+		struct IsSTDVectorImpl {
+			static constexpr bool value = false;
+		};
+
+		template <class T, class Alloc>
+		struct IsSTDVectorImpl<std::vector<T, Alloc>> {
+			static constexpr bool value = true;
+		};
+
+		template <class T>
+		using IsSTDVector = std::integral_constant<bool, IsSTDVectorImpl<std::remove_cv_t<std::remove_reference_t<T>>>::value>;
+
+		template <class T>
+		inline constexpr bool IsSTDVectorValue = IsSTDVector<T>::value;
+
+		template <class T>
+		concept STDVector = IsSTDVectorValue<T>;
+
+		template <class T>
+		struct ArrayDeserializationStrategy {
+			template <STDVector Vector>
+			void Push(Vector&&, T&) const {
+
+			}
+		};
+
+		template <>
+		struct ArrayDeserializationStrategy<config::Number> {
+			template <STDVector Vector>
+			void Push(Vector&& vector, config::Number& number) const {
+				std::visit(
+					[&vector](auto&& number) {
+						using T = std::decay_t<decltype(number)>;
+						if constexpr (std::same_as<std::monostate, T>) {
+							vector.push_back(0);
+						}
+						else {
+							vector.push_back(number);
+						}
+					},
+					number
+				);
+			}
+		};
+
+		template <>
+		struct ArrayDeserializationStrategy<std::string> {
+			template <STDVector Vector>
+			void Push(Vector&& vector, std::string& str) const {
+				vector.push_back(str);
+			}
+		};
+
+		template <class FieldType>
+		struct OrdinaryFieldDeserializationStrategy {
+			template <FieldAccessorConcept Accessor>
+			void Set(Accessor&&, config::ConfigNode::Value const&) {
+
+			}
+		};
+
+		template <class T>
+		concept Arithmetic = std::is_arithmetic_v<T>;
+
+		template <Arithmetic FieldType>
+		struct OrdinaryFieldDeserializationStrategy<FieldType> {
+			template <FieldAccessorConcept Accessor>
+			void Set(Accessor&& field_accessor, config::ConfigNode::Value const& value) {
+				field_accessor.Set(value.GetOr(0.0f));
+			}
+		};
+
+
+		template <>
+		struct OrdinaryFieldDeserializationStrategy<std::string> {
+			template <FieldAccessorConcept Accessor>
+			void Set(Accessor&& field_accessor, config::ConfigNode::Value const& value) {
+				field_accessor.Set(value.GetOr(std::string()));
+			}
+		};
+
+		template <STDVector FieldType>
+		struct OrdinaryFieldDeserializationStrategy<FieldType> {
+			template <FieldAccessorConcept Accessor>
+			void Set(Accessor&& field_accessor, config::ConfigNode::Value const& value) {
+
+				FieldType vector{};
+				vector.reserve(16u);
+
+				auto const& array = value.Get<config::ConfigNode::Value::Array>();
+				using ValueType = typename FieldType::value_type;
+
+				for (auto const& element : array) {
+					std::visit(
+						[&vector](auto&& element) {
+							using Element = std::decay_t<decltype(element)>;
+							details::ArrayDeserializationStrategy<Element>().Push(vector, element);
+						},
+						element
+					);
+				}
+
+			}
 		};
 
 	}
@@ -202,7 +309,8 @@ namespace fyuu_engine::reflection {
 					requires{ { field_accessor.Set(0) } -> std::same_as<void>; } ||
 					requires{ { field_accessor.Set(0.0f) } -> std::same_as<void>; } ||
 					requires{ { field_accessor.Set(false) } -> std::same_as<void>; } ||
-					requires{ { field_accessor.Set(std::declval<std::string>()) } -> std::same_as<void>; };
+					requires{ { field_accessor.Set(std::declval<std::string>()) } -> std::same_as<void>; } ||
+					details::STDVector<FieldType>;
 
 				if constexpr (std::bool_constant<is_ordinary_field>::value) {
 					/*
@@ -210,16 +318,8 @@ namespace fyuu_engine::reflection {
 					*/
 
 					std::string key = field_accessor.Name();
+					details::OrdinaryFieldDeserializationStrategy<FieldType>().Set(field_accessor, node[key]);
 
-					if constexpr (std::is_arithmetic_v<FieldType>) {
-						field_accessor.Set(node[key].GetOr(0.0f));
-					}
-					else if constexpr (std::is_convertible_v<std::string, FieldType>) {
-						field_accessor.Set(node[key].GetOr(std::string()));
-					}
-					else {
-
-					}
 				}
 				else {
 
@@ -228,6 +328,10 @@ namespace fyuu_engine::reflection {
 
 					decltype(auto) value = field_accessor.Get();
 					auto reflective = Derived::MakeReflective(value);
+
+					/*
+					*	recursive call
+					*/
 					reflective.Visit(
 						[&node](auto&& field_accessor) {
 							DeserializeField<Depth + 1>(node, field_accessor);
@@ -339,29 +443,20 @@ namespace fyuu_engine::reflection {
 		template <FieldAccessorConcept Accessor>
 		static void DeserializeField(config::JSONConfig const& config, Accessor&& field_accessor, std::false_type) {
 			
+			using FieldType = std::decay_t<decltype(field_accessor.Get())>;
+
 			constexpr bool is_ordinary_field =
 				requires{ { field_accessor.Set(0) } -> std::same_as<void>; } ||
 				requires{ { field_accessor.Set(0.0f) } -> std::same_as<void>; } ||
 				requires{ { field_accessor.Set(false) } -> std::same_as<void>; } ||
-				requires{ { field_accessor.Set(std::declval<std::string>()) } -> std::same_as<void>; };
+				requires{ { field_accessor.Set(std::declval<std::string>()) } -> std::same_as<void>; } ||
+				details::STDVector<FieldType>;
 
 			std::string key = field_accessor.Name();
-			auto const& value = config[key];
+			fyuu_engine::config::ConfigNode::Value const& value = config[key];
 
 			if constexpr (std::bool_constant<is_ordinary_field>::value) {
-
-				using FieldType = std::decay_t<decltype(field_accessor.Get())>;
-
-				if constexpr (std::is_arithmetic_v<FieldType>) {
-					field_accessor.Set(value.GetOr(0.0f));
-				}
-				else if constexpr (std::is_convertible_v<std::string, FieldType>) {
-					field_accessor.Set(value.GetOr(std::string()));
-				}
-				else {
-
-				}
-
+				details::OrdinaryFieldDeserializationStrategy<FieldType>().Set(field_accessor, value);
 			}
 			else {
 				/*
@@ -482,6 +577,13 @@ namespace fyuu_engine::reflection {
 			);
 		}
 
+	};
+
+	export template <class Serializer> concept SerializerConcept = requires(Serializer serializer) {
+		{ serializer.Parse(std::declval<std::string_view>()) } -> std::same_as<void>;
+		{ serializer.BeginSerialization() } -> std::same_as<void>;
+		{ serializer.EndSerialization() } -> std::same_as<void>;
+		{ serializer.Serialized() } -> std::convertible_to<std::string_view>;
 	};
 
 	export class JSONSerializer : public BaseJSONSerializer<JSONSerializer> {
