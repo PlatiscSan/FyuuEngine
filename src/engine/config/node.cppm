@@ -1,4 +1,4 @@
-export module config:node;
+export module config_node;
 import std;
 
 namespace fyuu_engine::config {

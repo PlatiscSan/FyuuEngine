@@ -1,6 +1,5 @@
-export module config;
-export import :node;
-
+export module base_config;
+export import config_node;
 
 namespace fyuu_engine::config {
 
@@ -34,13 +33,5 @@ namespace fyuu_engine::config {
 		}
 
 	};
-
-	export template <class T> concept ConfigConcept = requires(T config) {
-		config.Open(std::declval<std::filesystem::path>());
-		config.SaveAs(std::declval<std::filesystem::path>());
-		{ config[""] } -> std::convertible_to<std::reference_wrapper<ConfigNode::Value>>;
-		{ config[""] } -> std::convertible_to<std::add_const_t<std::reference_wrapper<ConfigNode::Value>>>;
-	};
-
 
 }

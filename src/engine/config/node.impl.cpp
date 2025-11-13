@@ -1,4 +1,4 @@
-module config:node;
+module config_node;
 
 namespace fyuu_engine::config {
 

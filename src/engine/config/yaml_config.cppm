@@ -1,9 +1,7 @@
-module;
-#include <yaml-cpp/yaml.h>
-
 export module config.yaml;
-export import config;
+export import base_config;
 import pointer_wrapper;
+import <yaml-cpp/yaml.h>;
 
 namespace fyuu_engine::config {
 

@@ -1,4 +1,4 @@
-module config.json;
+module json_config;
 import string_converter;
 
 namespace fyuu_engine::config {

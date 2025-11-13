@@ -1,6 +1,6 @@
-export module config.json;
-export import <nlohmann/json.hpp>;
-export import config;
+export module json_config;
+import <nlohmann/json.hpp>;
+export import base_config;
 import pointer_wrapper;
 import std;
 

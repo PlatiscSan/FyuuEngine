@@ -1,6 +1,3 @@
-module;
-#include <yaml-cpp/yaml.h>
-
 module config.yaml;
 import string_converter;
 import pointer_wrapper;
