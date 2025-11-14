@@ -4,27 +4,27 @@ import pointer_wrapper;
 
 namespace fyuu_engine::config {
 
-	void YAMLConfig::ProceedScalar(util::PointerWrapper<ConfigNode> const& node, std::string const& key, std::string const& value) {
+	void YAMLConfig::ProceedScalar(ConfigNode& node, std::string const& key, std::string const& value) {
 
 		switch (util::StringConverter::InferType(value)) {
 		case util::StringConverter::ValueType::Bool:
-			(*node)[key].Set(util::StringConverter::Convert<bool>(value));
+			node[key].Set(util::StringConverter::Convert<bool>(value));
 			break;
 		case util::StringConverter::ValueType::Int:
-			(*node)[key].Set(util::StringConverter::Convert<std::intmax_t>(value));
+			node[key].Set(util::StringConverter::Convert<std::intmax_t>(value));
 			break;
 		case util::StringConverter::ValueType::Uint:
-			(*node)[key].Set(util::StringConverter::Convert<std::uintmax_t>(value));
+			node[key].Set(util::StringConverter::Convert<std::uintmax_t>(value));
 			break;
 		case util::StringConverter::ValueType::Float:
-			(*node)[key].Set(util::StringConverter::Convert<double>(value));
+			node[key].Set(util::StringConverter::Convert<double>(value));
 			break;
 		default:
-			(*node)[key].Set(value);
+			node[key].Set(value);
 		}
 	}
 
-	void YAMLConfig::ProceedSequence(util::PointerWrapper<ConfigNode> const& node, std::string const& key, YAML::Node const& yaml_node) {
+	void YAMLConfig::ProceedSequence(ConfigNode& node, std::string const& key, YAML::Node const& yaml_node) {
 
 		if (!yaml_node.IsSequence()) {
 			return;
@@ -51,7 +51,7 @@ namespace fyuu_engine::config {
 
 		}
 
-		(*node)[key].Set(std::move(array));
+		node[key].Set(std::move(array));
 
 	}
 
@@ -140,11 +140,11 @@ namespace fyuu_engine::config {
 					break;
 
 				case YAML::NodeType::Scalar:
-					YAMLConfig::ProceedScalar(current_node, key, value_node.as<std::string>());
+					YAMLConfig::ProceedScalar(*current_node, key, value_node.as<std::string>());
 					break;
 
 				case YAML::NodeType::Sequence:
-					YAMLConfig::ProceedSequence(current_node, key, value_node);
+					YAMLConfig::ProceedSequence(*current_node, key, value_node);
 					break;
 
 				default:

@@ -8,9 +8,9 @@ namespace fyuu_engine::config {
 	export class YAMLConfig : public BaseConfig<YAMLConfig> {
 		friend class BaseConfig<YAMLConfig>;
 	private:
-		static void ProceedScalar(util::PointerWrapper<ConfigNode> const& node, std::string const& key, std::string const& value);
+		static void ProceedScalar(ConfigNode& node, std::string const& key, std::string const& value);
 
-		static void ProceedSequence(util::PointerWrapper<ConfigNode> const& node, std::string const& key, YAML::Node const& yaml_node);
+		static void ProceedSequence(ConfigNode& node, std::string const& key, YAML::Node const& yaml_node);
 
 		static void ProceedNumber(ConfigNode::Value const& val, YAML::Node& yaml_node, std::string const& key);
 
