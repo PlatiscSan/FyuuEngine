@@ -3,45 +3,6 @@ export import concurrent_container_base;
 import std;
 
 export namespace fyuu_engine::concurrency {
-	
-	template <class Key>
-	class ImmutableKey {
-	private:
-		Key m_key;
-
-	public:
-		template <class... Args>
-		ImmutableKey(Args&&... args)
-			: m_key(std::forward<Args>(args)...) {
-		}
-
-		ImmutableKey(ImmutableKey const&) = default;
-		ImmutableKey& operator=(ImmutableKey const&) = delete;
-
-		ImmutableKey(ImmutableKey&& other) noexcept
-			: m_key(std::move(other.m_key)) {
-
-		}
-
-		ImmutableKey& operator=(ImmutableKey&& other) noexcept {
-			if (this != &other) {
-				m_key = std::move(other.m_key);
-			}
-			return *this;
-		}
-
-		Key const& Get() const noexcept {
-			return m_key;
-		}
-		operator Key const& () const noexcept {
-			return m_key;
-		}
-
-		bool operator==(ImmutableKey const& other) const {
-			return m_key == other.m_key;
-		}
-
-	};
 
 	template<
 		class Key,

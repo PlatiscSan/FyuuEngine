@@ -5,13 +5,7 @@ import std;
 
 export namespace fyuu_engine::concurrency {
 
-    /// @brief                  concurrent circular buffer
-    /// @tparam T               The type of the elements.
-    ///                         T must meet the requirements of CopyAssignable and CopyConstructible.
-    /// @tparam Allocator       An allocator that is used to acquire/release memory and to construct/destroy the elements in that memory.
-    ///                         The type must meet the requirements of Allocator.
-    /// @tparam N               The size of the circular buffer
-    template <class T, std::size_t N, class Allocator = std::allocator<T>>
+    template <class T, std::size_t N, bool forcely_heap_alloc = false, class Allocator = std::allocator<T>>
     class CircularBuffer {
     public:
         using value_type = T;
@@ -23,16 +17,20 @@ export namespace fyuu_engine::concurrency {
         using pointer = typename std::allocator_traits<allocator_type>::pointer;
         using const_pointer = typename std::allocator_traits<allocator_type>::const_pointer;
 
-    public:
         class SafeReference {
         private:
-            UniqueLock m_lock;
             reference m_ref;
+            CircularBuffer* m_owner;
 
         public:
-            SafeReference(reference ref, UniqueLock&& lock)
-                :m_ref(ref), m_lock(std::move(lock)) {
+            SafeReference(reference ref, CircularBuffer* owner)
+                :m_ref(ref), m_owner(owner) {
 
+            }
+
+            ~SafeReference() noexcept {
+                m_owner->m_external_ref_count.fetch_sub(1u, std::memory_order::relaxed);
+                m_owner->m_external_ref_count.notify_all();
             }
 
             operator reference() const noexcept {
@@ -54,13 +52,18 @@ export namespace fyuu_engine::concurrency {
 
         class ConstSafeReference {
         private:
-            SharedLock m_lock;
             const_reference m_ref;
+            CircularBuffer const* m_owner;
 
         public:
-            ConstSafeReference(const_reference  ref, SharedLock&& lock)
-                :m_ref(ref), m_lock(std::move(lock)) {
+            ConstSafeReference(const_reference ref, CircularBuffer const* owner)
+                :m_ref(ref), m_owner(owner) {
 
+            }
+
+            ~ConstSafeReference() noexcept {
+                m_owner->m_external_ref_count.fetch_sub(1u, std::memory_order::relaxed);
+                m_owner->m_external_ref_count.notify_all();
             }
 
             operator const_reference () const noexcept {
@@ -74,13 +77,11 @@ export namespace fyuu_engine::concurrency {
 
         };
 
-
-
         static constexpr std::size_t const Capacity = N;
 
     private:
         static constexpr std::size_t const kBufferSize = N + 1;
-        static constexpr bool UseSOO = (sizeof(T) <= 8u);
+        static constexpr bool UseSOO = !forcely_heap_alloc && (sizeof(T) <= 8u);
 
         struct HeapArray {
             pointer data;
@@ -134,25 +135,48 @@ export namespace fyuu_engine::concurrency {
             }
         };
 
-        std::atomic<size_type> m_read_index = 0u;
-        std::atomic<size_type> m_write_index = 0u;
+        alignas(std::hardware_destructive_interference_size) std::atomic<size_type> m_read_index = 0u;
+        alignas(std::hardware_destructive_interference_size) std::atomic<size_type> m_write_index = 0u;
 
         /// @brief updating or pending write position
-        std::atomic<size_type> m_pending_write_index = 0u;
+        alignas(std::hardware_destructive_interference_size) std::atomic<size_type> m_pending_write_index = 0u;
 
-        Mutex m_mutex;
+        mutable std::atomic<size_type> m_external_ref_count;
+        std::atomic<size_type> m_push_pop_count;
         Storage m_storage;
 
-        static void Notify(std::atomic<size_type>& index) {
-            index.notify_all();
+        static void Notify(std::atomic<size_type>& atomic_var) {
+            atomic_var.notify_all();
         }
+
+        template <class Func>
+        struct Defer {
+            Func func;
+            ~Defer() noexcept {
+                func();
+            }
+        };
 
         template <class FailureHandler, class... Args>
         bool EmplaceBackImp(FailureHandler&& handler, Args&&... args) {
 
             // block until no reference
 
-            auto lock = m_mutex.LockShared();
+            size_type external_ref_count = 0;
+            do {
+                external_ref_count = m_external_ref_count.load(std::memory_order::acquire);
+                if (external_ref_count > 0) {
+                    m_external_ref_count.wait(external_ref_count, std::memory_order::relaxed);
+                }
+            } while (external_ref_count > 0);
+
+            m_push_pop_count.fetch_add(1u, std::memory_order::release);
+            Defer defer(
+                [this]() {
+                    m_push_pop_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(m_push_pop_count);
+                }
+            );
 
             // update the buffer with CAS.
 
@@ -200,7 +224,7 @@ export namespace fyuu_engine::concurrency {
                 std::memory_order_release,
                 std::memory_order_relaxed));
 
-            Notify(m_pending_write_index);
+            CircularBuffer::Notify(m_pending_write_index);
 
             return true;
 
@@ -215,7 +239,21 @@ export namespace fyuu_engine::concurrency {
 
             // block until no reference.
 
-            auto lock = m_mutex.LockShared();
+            size_type external_ref_count = 0;
+            do {
+                external_ref_count = m_external_ref_count.load(std::memory_order::acquire);
+                if (external_ref_count > 0) {
+                    m_external_ref_count.wait(external_ref_count, std::memory_order::relaxed);
+                }
+            } while (external_ref_count > 0);
+
+            m_push_pop_count.fetch_add(1u, std::memory_order::release);
+            Defer defer(
+                [this]() {
+                    m_push_pop_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(m_push_pop_count);
+                }
+            );
 
             // update the buffer with CAS.
 
@@ -254,17 +292,35 @@ export namespace fyuu_engine::concurrency {
                 std::allocator_traits<allocator_type>::destroy(m_storage.alloc, &m_storage[old_read_index]);
             }
 
-            Notify(m_read_index);
+            CircularBuffer::Notify(m_read_index);
 
             return temp;
 
+        }
+
+        void WaitForPushAndPop() {
+            size_type push_pop_count = 0;
+            do {
+                push_pop_count = m_push_pop_count.load(std::memory_order::acquire);
+                if (push_pop_count > 0) {
+                    m_push_pop_count.wait(push_pop_count, std::memory_order::relaxed);
+                }
+            } while (push_pop_count > 0);
+
+            m_external_ref_count.fetch_add(1u, std::memory_order::release);
         }
 
         auto ClearImp() {
 
             // Block all pop and push, we are about to remove all elements.
 
-            auto lock = m_mutex.Lock();
+            WaitForPushAndPop();
+            Defer defer(
+                [this]() {
+                    m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(m_external_ref_count);
+                }
+            );
 
             while (!empty()) {
                 size_type read_index = m_read_index.load(std::memory_order::acquire);
@@ -277,7 +333,7 @@ export namespace fyuu_engine::concurrency {
                 m_read_index.store((read_index + 1) % kBufferSize, std::memory_order::release);
             }
 
-            return lock;
+            return defer;
 
         }
 
@@ -359,7 +415,13 @@ export namespace fyuu_engine::concurrency {
 
             // Block all pop and push from other, we are about to copy elements
 
-            auto lock = other.m_mutex.Lock();
+            other.WaitForPushAndPop();
+            Defer defer(
+                [this]() {
+                    other.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(other.m_external_ref_count);
+                }
+            );
 
             size_type read_index = other.m_read_index.load(0, std::memory_order::acquire);
             m_read_index.store(read_index, std::memory_order::release);
@@ -389,7 +451,13 @@ export namespace fyuu_engine::concurrency {
 
             // Block all pop and push, we are about to move elements
 
-            auto lock = other.m_mutex.Lock();
+            other.WaitForPushAndPop();
+            Defer defer(
+                [this]() {
+                    other.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(other.m_external_ref_count);
+                }
+            );
 
             m_read_index.store(other.m_read_index.exchange(0, std::memory_order::relaxed), std::memory_order::relaxed);
             m_write_index.store(other.m_write_index.exchange(0, std::memory_order::relaxed), std::memory_order::relaxed);
@@ -402,10 +470,40 @@ export namespace fyuu_engine::concurrency {
 
             if (this != &other) {
 
-                auto lock = ClearImp();
+                auto defer = ClearImp();
 
-                // copy from other.
-                CircularBuffer::CircularBuffer(std::forward<CircularBuffer>(other));
+                // Block all pop and push from other, we are about to copy elements
+
+                other.WaitForPushAndPop();
+                other.m_external_ref_count.fetch_add(1u, std::memory_order::release);
+                Defer defer(
+                    [this]() {
+                        other.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                        CircularBuffer::Notify(other.m_external_ref_count);
+                    }
+                );
+
+                size_type read_index = other.m_read_index.load(0, std::memory_order::acquire);
+                m_read_index.store(read_index, std::memory_order::release);
+                m_write_index.store(other.m_write_index.load(std::memory_order::relaxed), std::memory_order::relaxed);
+                m_pending_write_index.store(other.m_pending_write_index.load(std::memory_order::relaxed), std::memory_order::relaxed);
+
+                if constexpr (!UseSOO) {
+                    m_storage.alloc = other.m_storage.alloc;
+                }
+
+                while (read_index != other.m_write_index) {
+                    if constexpr (UseSOO) {
+                        new(&m_storage[read_index]) T(other.m_storage[read_index]);
+                    }
+                    else {
+                        std::allocator_traits<allocator_type>::construct(
+                            m_storage.alloc, &m_storage[read_index], other.m_storage[read_index]
+                        );
+                    }
+                    read_index = (read_index + 1) % kBufferSize;
+                }
+
 
             }
             return *this;
@@ -415,10 +513,21 @@ export namespace fyuu_engine::concurrency {
 
             if (this != &other) {
 
-                auto lock = ClearImp();
+                auto defer = ClearImp();
 
-                // move from other.
-                CircularBuffer::CircularBuffer(std::forward<CircularBuffer>(other));
+                other.WaitForPushAndPop();
+                other.m_external_ref_count.fetch_add(1u, std::memory_order::release);
+                Defer defer(
+                    [this]() {
+                        other.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                        CircularBuffer::Notify(other.m_external_ref_count);
+                    }
+                );
+
+                m_read_index.store(other.m_read_index.exchange(0, std::memory_order::relaxed), std::memory_order::relaxed);
+                m_write_index.store(other.m_write_index.exchange(0, std::memory_order::relaxed), std::memory_order::relaxed);
+                m_pending_write_index.store(other.m_pending_write_index.exchange(0, std::memory_order::relaxed), std::memory_order::relaxed);
+                m_storage = std::move(other.m_storage);
 
             }
             return *this;
@@ -493,14 +602,20 @@ export namespace fyuu_engine::concurrency {
             return m_storage[m_read_index.load(std::memory_order::acquire)];
         }
 
+        /// @brief  access front element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to front element
         SafeReference front() {
-            auto lock = m_mutex.Lock();
-            return SafeReference(UnsafeFront(), std::move(lock));
+            WaitForPushAndPop();
+            return SafeReference(UnsafeFront(), this);
         }
 
+        /// @brief  access front element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to front element
         ConstSafeReference front() const {
-            auto lock = m_mutex.LockShared();
-            return SafeReference(UnsafeFront(), std::move(lock));
+            WaitForPushAndPop();
+            return SafeReference(UnsafeFront(), this);
         }
 
         reference& UnsafeBack() noexcept {
@@ -511,14 +626,20 @@ export namespace fyuu_engine::concurrency {
             return m_storage[(m_write_index.load(std::memory_order::acquire) + kBufferSize - 1) % kBufferSize];
         }
 
+        /// @brief  access back element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to back element
         SafeReference back() {
-            auto lock = m_mutex.Lock();
-            return SafeReference(UnsafeBack(), std::move(lock));
+            WaitForPushAndPop();
+            return SafeReference(UnsafeBack(), this);
         }
 
+        /// @brief  access back element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to back element
         ConstSafeReference back() const {
-            auto lock = m_mutex.LockShared();
-            return SafeReference(UnsafeBack(), std::move(lock));
+            WaitForPushAndPop();
+            return SafeReference(UnsafeBack(), this);
         }
 
         reference UnsafeAt(size_type index) {
@@ -539,21 +660,41 @@ export namespace fyuu_engine::concurrency {
             return m_storage[pos];
         }
 
+        /// @brief  access element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to element
         SafeReference at(size_type index) {
-            auto lock = m_mutex.Lock();
-            return SafeReference(UnsafeAt(index), std::move(lock));
+            WaitForPushAndPop();
+            return SafeReference(UnsafeAt(index), this);
         }
 
+        /// @brief  access element in the queue safely.
+        ///         WARNING! After calling this deadlock will occur when performing any push or pop if the reference is not released
+        /// @return reference to element
         ConstSafeReference at(size_type index) const {
-            auto lock = m_mutex.LockShared();
-            return ConstSafeReference(UnsafeAt(index), std::move(lock));
+            WaitForPushAndPop();
+            return ConstSafeReference(UnsafeAt(index), this);
         }
 
         friend void swap(CircularBuffer& a, CircularBuffer& b) noexcept {
 
-            std::unique_lock lock_a(a.m_mutex, std::defer_lock);
-            std::unique_lock lock_b(b.m_mutex, std::defer_lock);
-            std::lock(lock_a, lock_b);
+            a.WaitForPushAndPop();
+            a.m_external_ref_count.fetch_add(1u, std::memory_order::release);
+            Defer defer_a(
+                [this]() {
+                    a.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(a.m_external_ref_count);
+                }
+            );
+
+            b.WaitForPushAndPop();
+            b.m_external_ref_count.fetch_add(1u, std::memory_order::release);
+            Defer defer_b(
+                [this]() {
+                    b.m_external_ref_count.fetch_sub(1u, std::memory_order::release);
+                    CircularBuffer::Notify(b.m_external_ref_count);
+                }
+            );
 
             auto swap_atomic = [](auto& x, auto& y) {
                 auto tmp = x.load();

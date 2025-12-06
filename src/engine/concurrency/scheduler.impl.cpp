@@ -68,25 +68,31 @@ namespace fyuu_engine::concurrency {
 			}
 
 			/*
-			*  remove ready coroutines and dispatch to other worker threads
+			*  remove ready coroutines and dispatch to one worker thread
 			*/
+
+			util::PointerWrapper<Worker> worker;
+			std::size_t retries = 0;
+			do {
+				worker = std::move(*workers.TryPopFront());
+			} while (!worker && ++retries < 10u);
+
+			if (++retries >= 10u) {
+				continue;
+			}
 
 			std::span<std::size_t const> view(finished_ids);
 			(void)task_groups.EraseKeys(view);
 
-			std::size_t worker_count = workers.size();
-			std::uniform_int_distribution<> int_distribution(0, static_cast<std::uint32_t>(worker_count - 1));
-
 			for (auto& ready_coroutine : ready_coroutines) {
-				int random_int = int_distribution(generator);
-				workers[random_int].Get()->SubmitTask(
+				worker->SubmitTask(
 					[ready_coroutine]() {
 						ready_coroutine();
 					}
 				);
 			}
 
-
+			workers.TryEmplaceBack(std::move(worker));
 
 		}
 
@@ -173,6 +179,13 @@ namespace fyuu_engine::concurrency {
 
 		return *this;
 
+	}
+
+	Scheduler& Scheduler::Hire(util::PointerWrapper<Worker> const& worker) {
+		Workers* workers = LoadWorkers();
+		workers->emplace_back(util::MakeReferred(worker, true));
+		Notify();
+		return *this;
 	}
 
 }

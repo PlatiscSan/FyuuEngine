@@ -2,8 +2,8 @@ export module scheduler;
 export import worker;
 export import pointer_wrapper;
 export import coroutine;
-import concurrent_vector;
 import concurrent_hash_map;
+import circular_buffer;
 import defer;
 import std;
 
@@ -19,7 +19,7 @@ namespace fyuu_engine::concurrency {
 			TaskGroup(TaskGroup&& other) noexcept;
 			TaskGroup& operator=(TaskGroup&& other) noexcept;
 		};
-		using Workers = ConcurrentVector<util::PointerWrapper<Worker>>;
+		using Workers = CircularBuffer<util::PointerWrapper<Worker>, 128u>;
 		using TaskGroupMap = ConcurrentHashMap<std::size_t, TaskGroup>;
 
 		std::atomic<Workers*> m_workers;
@@ -278,14 +278,7 @@ namespace fyuu_engine::concurrency {
 
 			}
 		};
-
-		template <std::convertible_to<util::PointerWrapper<Worker>> WorkerPtr>
-		Scheduler& Hire(WorkerPtr&& worker) {
-			Workers* workers = LoadWorkers();
-			workers->emplace_back(std::forward<WorkerPtr>(worker));
-			Notify();
-			return *this;
-		}
+		Scheduler& Hire(util::PointerWrapper<Worker> const& worker);
 
 		template <class... Tasks>
 		auto WaitForTasks(Tasks&&... tasks) {
@@ -302,17 +295,21 @@ namespace fyuu_engine::concurrency {
 		template <class Func, class... Args>
 		auto SubmitTask(Func&& func, Args&&... args) {
 
-			static thread_local std::mt19937 generator(
-				static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count())
-			);
-
 			Workers* workers = LoadWorkers();
+			util::PointerWrapper<Worker> worker;
+			std::size_t retries = 0;
+			do {
+				worker = std::move(*workers.TryPopFront());
+			} while (!worker && ++retries < 10u);
 
-			std::size_t worker_count = workers->size();
-			std::uniform_int_distribution<std::size_t> dist(0, worker_count - 1);
-			std::size_t random_index = dist(generator);
+			if (++retries >= 10u) {
+				throw std::runtime_error("No available worker");
+			}
 
-			return (*workers)[random_index].Get()->SubmitTask(std::forward<Func>(func), std::forward<Args>(args)...);
+			auto future = worker->SubmitTask(std::forward<Func>(func), std::forward<Args>(args)...);
+			workers->TryEmplaceBack(std::move(worker));
+
+			return future;
 
 		}
 

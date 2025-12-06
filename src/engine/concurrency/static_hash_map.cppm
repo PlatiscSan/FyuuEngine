@@ -1,5 +1,5 @@
 export module static_hash_map;
-export import concurrent_hash_map;
+export import concurrent_container_base;
 import std;
 
 export namespace fyuu_engine::concurrency {
@@ -452,15 +452,33 @@ export namespace fyuu_engine::concurrency {
 
 		SafeModificationPointer find(Key const& key) {
 			
-			std::unique_lock<std::mutex> lock(m_mutex);
+			std::unique_lock<std::shared_mutex> lock(m_mutex);
 
 			if (m_element_count.load(std::memory_order::acquire) == 0) {
 				return nullptr;
 			}
 
-			for (auto& [first, second] : m_elements) {
-				if (m_key_equal(*first, key)) {
+			for (std::optional<value_type> const& element : m_elements) {
+				auto&& [first, second] = *element;
+				if (m_key_equal(first, key)) {
 					return { &second, std::move(lock) };
+				}
+			}
+
+			return nullptr;
+		}
+
+
+		mapped_type const* UnsafeFind(Key const& key) const {
+
+			if (m_element_count.load(std::memory_order::acquire) == 0) {
+				return nullptr;
+			}
+
+			for (std::optional<value_type> const& element : m_elements) {
+				auto&& [first, second] = *element;
+				if (m_key_equal(first, key)) {
+					return &second;
 				}
 			}
 
