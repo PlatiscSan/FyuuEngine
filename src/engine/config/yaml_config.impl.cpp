@@ -1,4 +1,4 @@
-module config.yaml;
+module config:yaml;
 import string_converter;
 import pointer_wrapper;
 
@@ -36,7 +36,7 @@ namespace fyuu_engine::config {
 			auto item = yaml_item.as<std::string>();
 			switch (util::StringConverter::InferType(item)) {
 			case util::StringConverter::ValueType::Bool:
-				array.emplace_back(std::in_place_type<Number>, std::in_place_type<std::uintmax_t>, util::StringConverter::Convert<bool>(item));
+				array.emplace_back(util::StringConverter::Convert<bool>(item));
 				break;
 			case util::StringConverter::ValueType::Int:
 				array.emplace_back(util::StringConverter::Convert<std::intmax_t>(item));
@@ -55,45 +55,44 @@ namespace fyuu_engine::config {
 
 	}
 
-	void YAMLConfig::ProceedNumber(ConfigNode::Value const& val, YAML::Node& yaml_node, std::string const& key) {
+	void YAMLConfig::ProceedArithmetic(ConfigNode::Value const& val, YAML::Node& yaml_node, std::string const& key) {
 		
-		auto& number = val.Get<Number>();
+		ConfigNode::Value::Arithmetic const& arithmetic = val.AsArithmetic();
 		
-		std::visit(
-			[&yaml_node, &key](auto&& arithmetic) {
-				using Arithmetic = std::decay_t<decltype(arithmetic)>;
-				if constexpr (std::is_same_v<Arithmetic, std::monostate>) {
+		if (arithmetic.HoldsBool()) {
+			yaml_node[key].push_back(arithmetic.As<bool>());
+		}
+		else if (arithmetic.HoldsFloat()) {
+			yaml_node[key].push_back(arithmetic.As<long double>());
+		}
+		else if (arithmetic.HoldsSigned()) {
+			yaml_node[key].push_back(arithmetic.As<std::ptrdiff_t>());
+		}
+		else if (arithmetic.HoldsSigned()) {
+			yaml_node[key].push_back(arithmetic.As<std::size_t>());
+		}
+		else {
 
-				}
-				else {
-					yaml_node[key].push_back(arithmetic);
-				}
-			},
-			number
-		);
+		}
 
 	}
 
 	void YAMLConfig::ProceedConfigArray(ConfigNode::Value const& val, YAML::Node& yaml_node, std::string const& key) {
 
-		auto& array = val.Get<ConfigNode::Value::Array>();
+		auto& array = val.As<ConfigNode::Value::Array>();
 
 		for (auto const& element : array) {
-			std::visit(
-				[&val, &yaml_node, &key](auto&& element) {
-					using Element = std::decay_t<decltype(element)>;
-					if constexpr (std::is_same_v<Number, Element>) {
-						YAMLConfig::ProceedNumber(val, yaml_node, key);
-					}
-					else if constexpr (std::is_same_v<std::string, Element>) {
-						yaml_node[key].push_back(element);
-					}
-					else {
 
-					}
-				},
-				element
-			);
+			if (element.HoldsArithmetic()) {
+				YAMLConfig::ProceedArithmetic(val, yaml_node, key);
+			}
+			else if (element.HoldsString()) {
+				yaml_node[key].push_back(element.AsString());;
+			}
+			else {
+
+			}
+
 		}
 
 	}
@@ -186,12 +185,12 @@ namespace fyuu_engine::config {
 				auto& [key, val] = *iter;
 
 				switch (val.GetStorageType()) {
-				case ConfigNode::Value::StorageType::Number:
-					yaml_node[key] = val.GetOr(0.0f);
+					case ConfigNode::Value::StorageType::Arithmetic:
+					yaml_node[key] = val.AsOr(0.0f);
 					break;
 
 				case ConfigNode::Value::StorageType::String:
-					yaml_node[key] = val.GetOr(std::string());
+					yaml_node[key] = val.AsOr(std::string());
 					break;
 
 				case ConfigNode::Value::StorageType::Array:
@@ -261,6 +260,10 @@ namespace fyuu_engine::config {
 	void YAMLConfig::ParseImpl(std::string_view dumped) {
 		YAML::Node yaml_root = YAML::Load(dumped.data());
 		YAMLConfig::ParseYAML(yaml_root, m_root);
+	}
+
+	YAMLConfig::YAMLConfig(std::filesystem::path const& file_path) {
+		OpenImpl(file_path);
 	}
 
 }

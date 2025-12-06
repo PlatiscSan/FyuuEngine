@@ -1,4 +1,4 @@
-module config_node;
+module config:node;
 
 namespace fyuu_engine::config {
 
@@ -26,6 +26,10 @@ namespace fyuu_engine::config {
 		return m_fields.end();
 	}
 
+	bool ConfigNode::Contains(std::string const& field) const noexcept {
+		return m_fields.contains(field);
+	}
+
 	ConfigNode::Value::operator bool() const noexcept {
 		return std::visit(
 			[](auto&& storage) {
@@ -44,8 +48,8 @@ namespace fyuu_engine::config {
 		return std::visit(
 			[](auto&& storage) -> ConfigNode::Value::StorageType {
 				using Type = std::decay_t<decltype(storage)>;
-				if constexpr (std::is_same_v<Number, Type>) {
-					return ConfigNode::Value::StorageType::Number;
+				if constexpr (std::is_same_v<Arithmetic, Type>) {
+					return ConfigNode::Value::StorageType::Arithmetic;
 				}
 				else if constexpr (std::is_same_v<std::string, Type>) {
 					return ConfigNode::Value::StorageType::String;
@@ -68,17 +72,30 @@ namespace fyuu_engine::config {
 		m_storage.emplace<std::monostate>();
 	}
 
-	void ConfigNode::Value::Set(std::string_view str) {
-		m_storage.emplace<std::string>(str);
-	}
-
-	void ConfigNode::Value::Set(Number const& num) {
-		m_storage.emplace<Number>(num);
-	}
-
 	ConfigNode& ConfigNode::Value::AsNode() {
-		auto& node = m_storage.emplace<std::unique_ptr<ConfigNode>>(std::make_unique<ConfigNode>());
-		return *node;
+		std::unique_ptr<ConfigNode>& storage = std::get<std::unique_ptr<ConfigNode>>(m_storage);
+		return *storage;
+	}
+
+	ConfigNode const& ConfigNode::Value::AsNode() const {
+		std::unique_ptr<ConfigNode> const& storage = std::get<std::unique_ptr<ConfigNode>>(m_storage);
+		return *storage;
+	}
+
+	ConfigNode::Value::Array& ConfigNode::Value::AsArray() {
+		return std::get<Array>(m_storage);
+	}
+
+	ConfigNode::Value::Array const& ConfigNode::Value::AsArray() const {
+		return std::get<Array>(m_storage);
+	}
+
+	ConfigNode::Value::Arithmetic& ConfigNode::Value::AsArithmetic() {
+		return std::get<Arithmetic>(m_storage);
+	}
+
+	ConfigNode::Value::Arithmetic const& ConfigNode::Value::AsArithmetic() const {
+		return std::get<Arithmetic>(m_storage);
 	}
 
 	void ConfigNode::Value::Set(Array const& array) {
@@ -117,25 +134,7 @@ namespace fyuu_engine::config {
 		);
 	}
 
-	ConfigNode::Value::ArrayElement& ConfigNode::Value::operator[](std::size_t index) {
-		return std::visit(
-			[index](auto&& storage) -> ConfigNode::Value::ArrayElement& {
-				if constexpr (std::is_same_v<Array, std::decay_t<decltype(storage)>>) {
-					if (index >= storage.size()) {
-						throw std::out_of_range("array index out of range");
-					}
-					return storage[index];
-				}
-				else {
-					throw std::runtime_error("not an array type");
-				}
-			},
-			m_storage
-		);
-	}
-
-
-	ConfigNode::Value  const& ConfigNode::Value::operator[](std::string const& path) const {
+	ConfigNode::Value const& ConfigNode::Value::operator[](std::string const& path) const {
 		return std::visit(
 			[&path](auto&& storage) -> Value const& {
 				if constexpr (std::is_same_v<std::unique_ptr<ConfigNode>, std::decay_t<decltype(storage)>>) {
@@ -157,23 +156,6 @@ namespace fyuu_engine::config {
 				}
 				else {
 					throw std::runtime_error("not node type");
-				}
-			},
-			m_storage
-		);
-	}
-
-	ConfigNode::Value::ArrayElement const& ConfigNode::Value::operator[](std::size_t index) const {
-		return std::visit(
-			[index](auto&& storage) -> ConfigNode::Value::ArrayElement const& {
-				if constexpr (std::is_same_v<Array, std::decay_t<decltype(storage)>>) {
-					if (index >= storage.size()) {
-						throw std::out_of_range("array index out of range");
-					}
-					return storage[index];
-				}
-				else {
-					throw std::runtime_error("not an array type");
 				}
 			},
 			m_storage

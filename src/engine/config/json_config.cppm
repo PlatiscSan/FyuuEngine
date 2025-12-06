@@ -1,8 +1,8 @@
-export module json_config;
-import <nlohmann/json.hpp>;
-export import base_config;
-import pointer_wrapper;
+export module config:json;
 import std;
+import <nlohmann/json.hpp>;
+export import :base;
+import pointer_wrapper;
 
 namespace fyuu_engine::config {
 
@@ -14,12 +14,12 @@ namespace fyuu_engine::config {
 
 		static void ParseJSON(nlohmann::json const& json_root, ConfigNode& root);
 
-		static void ProceedNumber(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key);
+		static void ProceedArithmetic(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key);
 
 		static void ProceedConfigArray(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key);
 
 		static void ProceedConfigNode(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key, auto& stack) {
-			auto& node = val.Get<ConfigNode>();
+			auto& node = val.As<ConfigNode>();
 			json_node[key] = nlohmann::json::object();
 			stack.push_back({ node.begin(),node.end(), &json_node[key] });
 		}
@@ -33,6 +33,10 @@ namespace fyuu_engine::config {
 		std::string DumpImpl() const;
 
 		void ParseImpl(std::string_view dumped);
+
+	public:
+		JSONConfig() = default;
+		JSONConfig(std::filesystem::path const& file_path);
 
 	};
 

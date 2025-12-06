@@ -1,5 +1,5 @@
-export module base_config;
-export import config_node;
+export module config:base;
+export import :node;
 
 namespace fyuu_engine::config {
 

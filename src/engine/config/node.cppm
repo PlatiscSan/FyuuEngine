@@ -1,18 +1,15 @@
-export module config_node;
+export module config:node;
+export import arithmetic;
+export import array;
 import std;
 
 namespace fyuu_engine::config {
 
-	export using Number = std::variant<
-		std::monostate,
-		std::uintmax_t,
-		std::intmax_t,
-		double
-	>;
-
-	export template <class T> concept Arithmetic = requires() {
-		requires std::is_arithmetic_v<T>;
-	};
+	namespace details {
+		template <class T> concept ValueConstructible = requires() {
+			requires std::is_arithmetic_v<T> || std::is_convertible_v<std::string_view, T> || std::is_convertible_v<std::string, T>;
+		};
+	}
 
 	export class ConfigNode {
 	public:
@@ -34,16 +31,18 @@ namespace fyuu_engine::config {
 		ConstIterator begin() const noexcept;
 		ConstIterator end() const noexcept;
 
+		bool Contains(std::string const& field) const noexcept;
+
 	};
 
 	class ConfigNode::Value {
 	public:
-		using ArrayElement = std::variant<std::monostate, Number, std::string>;
-		using Array = std::vector<ArrayElement>;
+		using Array = util::Array;
+		using Arithmetic = util::Arithmetic;
 
 		enum class StorageType : std::uint8_t {
 			Null,
-			Number,
+			Arithmetic,
 			String,
 			Array,
 			Node
@@ -52,7 +51,7 @@ namespace fyuu_engine::config {
 	private:
 		using Storage = std::variant<
 			std::monostate, 
-			Number,
+			Arithmetic,
 			std::string, 
 			Array,
 			std::unique_ptr<ConfigNode>
@@ -65,120 +64,15 @@ namespace fyuu_engine::config {
 
 		StorageType GetStorageType() const noexcept;
 
-		template <Arithmetic T>
-		T Get() {
-			return std::visit(
-				[](auto&& storage) -> T {
-					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, Number>) {
-						return std::visit(
-							[](auto&& arithmetic) -> T {
-								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
-									throw std::runtime_error("invalid arithmetic type");
-								}
-								else {
-									return static_cast<T>(arithmetic);
-								}
-							},
-							storage
-						);
-					}
-					else {
-						throw std::runtime_error("incompatible type or empty storage");
-					}
-				},
-				m_storage
-			);
-
-		}
-
-		template <Arithmetic T>
-		T Get() const {
-			return std::visit(
-				[](auto&& storage) -> T {
-					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, Number>) {
-						return std::visit(
-							[](auto&& arithmetic) -> T {
-								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
-									throw std::runtime_error("invalid arithmetic type");
-								}
-								else {
-									return static_cast<T>(arithmetic);
-								}
-							},
-							storage
-						);
-					}
-					else {
-						throw std::runtime_error("incompatible type or empty storage");
-					}
-				},
-				m_storage
-			);
-
-		}
-
-		template <Arithmetic T>
-		T GetOr(T&& fallback) {
-			return std::visit(
-				[fallback](auto&& storage) -> T {
-					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, Number>) {
-						return std::visit(
-							[fallback](auto&& arithmetic) -> T {
-								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
-									return fallback;
-								}
-								else {
-									return static_cast<T>(arithmetic);
-								}
-							},
-							storage
-						);
-					}
-					else {
-						return fallback;
-					}
-				},
-				m_storage
-			);
-
-		}
-
-		template <Arithmetic T>
-		T GetOr(T&& fallback) const {
-			return std::visit(
-				[fallback](auto&& storage) -> T {
-					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, Number>) {
-						return std::visit(
-							[fallback](auto&& arithmetic) -> T {
-								if constexpr (std::is_same_v<std::monostate, std::decay_t<decltype(arithmetic)>>) {
-									return fallback;
-								}
-								else {
-									return static_cast<T>(arithmetic);
-								}
-							},
-							storage
-						);
-					}
-					else {
-						return fallback;
-					}
-				},
-				m_storage
-			);
-
-		}
-
 		template <class T>
-		T& Get() {
+		T& As() {
 			return std::visit(
 				[](auto&& storage) -> T& {
 					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+					if constexpr (std::is_same_v<Type, Arithmetic> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(storage);
 					}
 					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<typename std::unique_ptr<ConfigNode>::element_type, T>) {
@@ -197,18 +91,24 @@ namespace fyuu_engine::config {
 
 
 		template <class T>
-		T const& Get() const {
+		T const& As() const {
 			return std::visit(
 				[](auto&& storage) -> T const& {
 					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<std::string, T>) {
-						return static_cast<T const&>(storage);
+					if constexpr (std::is_same_v<Type, Arithmetic> && std::is_convertible_v<Type, T>) {
+						return storage;
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<std::string, T>) {
+						return storage;
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
+						return storage.data();
 					}
 					else if constexpr (std::is_same_v<Type, std::unique_ptr<ConfigNode>> && std::is_convertible_v<ConfigNode, T>) {
-						return static_cast<T const&>(*storage);
+						return *storage;
 					}
 					else if constexpr (std::is_same_v<Type, Array> && std::is_convertible_v<Array, T>) {
-						return static_cast<T const&>(storage);
+						return storage;
 					}
 					else {
 						throw std::runtime_error("incompatible type or empty storage");
@@ -220,11 +120,14 @@ namespace fyuu_engine::config {
 
 
 		template <class T>
-		T& GetOr(T&& fallback) {
+		T& AsOr(T&& fallback) {
 			return std::visit(
-				[fallback](auto&& storage) -> T& {
+				[&fallback](auto&& storage) -> T& {
 					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+					if constexpr (std::is_same_v<Type, Arithmetic> && std::is_convertible_v<Type, T>) {
+						return static_cast<T&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
 						return static_cast<T&>(storage);
 					}
 					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
@@ -246,11 +149,14 @@ namespace fyuu_engine::config {
 
 
 		template <class T>
-		T const& GetOr(T&& fallback) const {
+		T const& AsOr(T&& fallback) const {
 			return std::visit(
 				[&fallback](auto&& storage) -> T const& {
 					using Type = std::decay_t<decltype(storage)>;
-					if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
+					if constexpr (std::is_same_v<Type, Arithmetic> && std::is_convertible_v<Type, T>) {
+						return static_cast<T const&>(storage);
+					}
+					else if constexpr (std::is_same_v<Type, std::string> && std::is_convertible_v<Type, T>) {
 						return static_cast<T const&>(storage);
 					}
 					else if constexpr (std::is_same_v<Type, std::string> && std::is_constructible_v<T, char const*>) {
@@ -271,27 +177,35 @@ namespace fyuu_engine::config {
 		}
 
 		void Set();
-		void Set(std::string_view str);
-		void Set(Number const& num);
 
 		ConfigNode& AsNode();
+		ConfigNode const& AsNode() const;
+
+		Array& AsArray();
+		Array const& AsArray() const;
+
+		Arithmetic& AsArithmetic();
+		Arithmetic const& AsArithmetic() const;
 
 		void Set(Array const& array);
 		void Set(Array&& array);
 
-		template <Arithmetic T>
-		void Set(T&& num) {
+		template <details::ValueConstructible T>
+		void Set(T&& value) {
 			if constexpr (std::is_same_v<std::decay_t<T>, bool>) {
-				m_storage.emplace<Number>(std::in_place_type<std::uintmax_t>, std::forward<T>(num));
+				m_storage.emplace<Arithmetic>(std::forward<T>(value));
 			}
 			else if constexpr (std::is_floating_point_v<std::decay_t<T>>) {
-				m_storage.emplace<Number>(std::in_place_type<double>, std::forward<T>(num));
+				m_storage.emplace<Arithmetic>(std::forward<T>(value));
 			}
 			else if constexpr (std::is_unsigned_v<std::decay_t<T>>) {
-				m_storage.emplace<Number>(std::in_place_type<uintmax_t>, std::forward<T>(num));
+				m_storage.emplace<Arithmetic>(std::forward<T>(value));
 			}
 			else if constexpr (std::is_signed_v<std::decay_t<T>>) {
-				m_storage.emplace<Number>(std::in_place_type<intmax_t>, std::forward<T>(num));
+				m_storage.emplace<Arithmetic>(std::forward<T>(value));
+			}
+			else if constexpr (std::is_convertible_v<std::decay_t<T>, std::string>) {
+				m_storage.emplace<std::string>(std::forward<T>(value));
 			}
 			else {
 				throw std::invalid_argument("invalid integral type");
@@ -300,11 +214,9 @@ namespace fyuu_engine::config {
 
 		Value& operator[](std::string const& path);
 		Value& operator[](char const* path);
-		ArrayElement& operator[](std::size_t index);
 
 		Value const& operator[](std::string const& path) const;
 		Value const& operator[](char const* path) const;
-		ArrayElement const& operator[](std::size_t index) const;
 
 	};
 

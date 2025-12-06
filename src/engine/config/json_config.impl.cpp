@@ -1,4 +1,4 @@
-module json_config;
+module config:json;
 import string_converter;
 
 namespace fyuu_engine::config {
@@ -12,19 +12,19 @@ namespace fyuu_engine::config {
 		ConfigNode::Value::Array array;
 		for (auto const& json_item : value_node) {
 			if (json_item.is_string()) {
-				array.emplace_back(std::in_place_type<std::string>, json_item.get<std::string>());
+				array.emplace_back(json_item.get<std::string>());
 			}
 			else if (json_item.is_boolean()) {
-				array.emplace_back(std::in_place_type<Number>, std::in_place_type<std::uintmax_t>, json_item.get<bool>());
+				array.emplace_back(json_item.get<bool>());
 			}
 			else if (json_item.is_number_integer()) {
-				array.emplace_back(std::in_place_type<Number>, json_item.get<std::intmax_t>());
+				array.emplace_back(json_item.get<std::ptrdiff_t>());
 			}
 			else if (json_item.is_number_unsigned()) {
-				array.emplace_back(std::in_place_type<Number>, json_item.get<std::uintmax_t>());
+				array.emplace_back(json_item.get<std::size_t>());
 			}
 			else if (json_item.is_number_float()) {
-				array.emplace_back(std::in_place_type<Number>, json_item.get<double>());
+				array.emplace_back(json_item.get<double>());
 			}
 		}
 
@@ -87,11 +87,11 @@ namespace fyuu_engine::config {
 					break;
 
 				case nlohmann::json::value_t::number_integer:
-					(*current_node)[key].Set(value_node.get<std::intmax_t>());
+					(*current_node)[key].Set(value_node.get<std::ptrdiff_t>());
 					break;
 
 				case nlohmann::json::value_t::number_unsigned:
-					(*current_node)[key].Set(value_node.get<std::uintmax_t>());
+					(*current_node)[key].Set(value_node.get<std::size_t>());
 					break;
 
 				case nlohmann::json::value_t::number_float:
@@ -109,45 +109,63 @@ namespace fyuu_engine::config {
 
 	}
 
-	void JSONConfig::ProceedNumber(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key) {
-		auto const& number = val.Get<Number>();
-		std::visit(
-			[&json_node, &key](auto&& arithmetic) {
-				using Arithmetic = std::decay_t<decltype(arithmetic)>;
-				if constexpr (!std::is_same_v<Arithmetic, std::monostate>) {
-					json_node[key] = arithmetic;
-				}
-			},
-			number
-		);
+	void JSONConfig::ProceedArithmetic(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key) {
+		
+		ConfigNode::Value::Arithmetic const& arithmetic = val.AsArithmetic();
+		if (arithmetic.HoldsBool()) {
+			json_node[key] = arithmetic.As<bool>();
+		}
+		else if (arithmetic.HoldsFloat()) {
+			json_node[key] = arithmetic.As<long double>();
+		}
+		else if (arithmetic.HoldsSigned()) {
+			json_node[key] = arithmetic.As<std::ptrdiff_t>();
+		}
+		else if (arithmetic.HoldsSigned()) {
+			json_node[key] = arithmetic.As<std::size_t>();
+		}
+		else {
+
+		}
+
 	}
 
 	void JSONConfig::ProceedConfigArray(ConfigNode::Value const& val, nlohmann::json& json_node, std::string const& key) {
 
-		auto const& array = val.Get<ConfigNode::Value::Array>();
+		ConfigNode::Value::Array const& array = val.AsArray();
 		nlohmann::json json_array = nlohmann::json::array();
 
 		for (auto const& element : array) {
-			std::visit(
-				[&json_array](auto&& element) {
-					using Element = std::decay_t<decltype(element)>;
-					if constexpr (std::is_same_v<Number, Element>) {
-						std::visit(
-							[&json_array](auto&& arithmetic) {
-								using Arithmetic = std::decay_t<decltype(arithmetic)>;
-								if constexpr (!std::is_same_v<Arithmetic, std::monostate>) {
-									json_array.push_back(arithmetic);
-								}
-							},
-							element
-						);
-					}
-					else if constexpr (std::is_same_v<std::string, Element>) {
-						json_array.push_back(element);
-					}
-				},
-				element
-			);
+
+			if (element.HoldsArithmetic()){
+
+				ConfigNode::Value::Arithmetic const& arithmetic = val.AsArithmetic();
+
+				if (arithmetic.HoldsBool()) {
+					json_array.push_back(arithmetic.As<bool>());
+				}
+				else if (arithmetic.HoldsFloat()) {
+					json_array.push_back(arithmetic.As<long double>());
+				}
+				else if (arithmetic.HoldsSigned()) {
+					json_array.push_back(arithmetic.As<std::ptrdiff_t>());
+				}
+				else if (arithmetic.HoldsSigned()) {
+					json_array.push_back(arithmetic.As<std::size_t>());
+				}
+				else {
+
+				}
+
+			}
+			else if (element.HoldsString()) {
+				std::string const& str = element.AsString();
+				json_array.push_back(str);
+			}
+			else {
+
+			}
+
 		}
 
 		json_node[key] = json_array;
@@ -182,12 +200,12 @@ namespace fyuu_engine::config {
 				auto const& [key, val] = *iter;
 
 				switch (val.GetStorageType()) {
-				case ConfigNode::Value::StorageType::Number:
-					(*json_node)[key] = val.GetOr(0.0f);
+				case ConfigNode::Value::StorageType::Arithmetic:
+					(*json_node)[key] = val.AsOr(0.0f);
 					break;
 
 				case ConfigNode::Value::StorageType::String:
-					(*json_node)[key] = val.GetOr(std::string());
+					(*json_node)[key] = val.AsOr(std::string());
 					break;
 
 				case ConfigNode::Value::StorageType::Array:
@@ -248,6 +266,10 @@ namespace fyuu_engine::config {
 	void JSONConfig::ParseImpl(std::string_view dumped) {
 		nlohmann::json data = nlohmann::json::parse(dumped);
 		JSONConfig::ParseJSON(data, m_root);
+	}
+
+	JSONConfig::JSONConfig(std::filesystem::path const& file_path) {
+		OpenImpl(file_path);
 	}
 
 }
