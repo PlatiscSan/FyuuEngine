@@ -424,20 +424,64 @@ export namespace fyuu_engine::util {
 		);
 	}
 
-	template <class T>
-	class EnableSharedFromThis : public std::enable_shared_from_this<T> {
-	public:
-		using Pointer = PointerWrapper<T>;
+	template <class Derived>
+	class EnableSharedFromThis : public std::enable_shared_from_this<Derived> {
+	private:
+		mutable std::once_flag m_check_flag;
+		mutable std::atomic_flag m_has_valid_shared_ptr;
 
-		Pointer This() {
-			try {
-				return static_cast<T*>(this)->shared_from_this();
+		bool IsManagedBySharedPtr() const noexcept {
+			return static_cast<Derived const*>(this)->weak_from_this().lock() != nullptr;
+		}
+
+	public:
+		using Pointer = PointerWrapper<Derived>;
+		using ConstPointer = PointerWrapper<Derived const>;
+
+		Pointer This() noexcept {
+
+			std::call_once(
+				m_check_flag,
+				[this]() {
+					if (IsManagedBySharedPtr()) {
+						m_has_valid_shared_ptr.test_and_set(std::memory_order::release);
+					}
+				}
+			);
+
+			if (m_has_valid_shared_ptr.test(std::memory_order::acquire)) {
+				return static_cast<Derived*>(this)->shared_from_this();
 			}
-			catch (std::bad_weak_ptr const&) {
-				///	caller must guarantee the lifetime of this instance not managed by std::shared_ptr
-				///
-				return static_cast<T*>(this);
+			else {
+				/*
+				*	caller must guarantee the lifetime of this instance not managed by std::shared_ptr
+				*/
+				return static_cast<Derived*>(this);
 			}
+
+		}
+
+		ConstPointer This() const noexcept {
+
+			std::call_once(
+				m_check_flag,
+				[this]() {
+					if (IsManagedBySharedPtr()) {
+						m_has_valid_shared_ptr.test_and_set(std::memory_order::release);
+					}
+				}
+			);
+
+			if (m_has_valid_shared_ptr.test(std::memory_order::acquire)) {
+				return static_cast<Derived*>(this)->shared_from_this();
+			}
+			else {
+				/*
+				*	caller must guarantee the lifetime of this instance not managed by std::shared_ptr
+				*/
+				return static_cast<Derived*>(this);
+			}
+
 		}
 	};
 

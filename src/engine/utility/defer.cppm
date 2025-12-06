@@ -25,16 +25,21 @@ export namespace fyuu_engine::util {
         }
     };
 
-    auto Lock(std::atomic_flag& mutex) noexcept {
-        while (mutex.test_and_set(std::memory_order::acq_rel)) {
-            mutex.wait(true, std::memory_order::relaxed);
-        }
-        return util::Defer(
-            [&]() {
-                mutex.clear(std::memory_order::release);
-                mutex.notify_one();
+    class Lock {
+    private:
+        std::atomic_flag& m_mutex;
+
+    public:
+        Lock(std::atomic_flag& mutex)
+            : m_mutex(mutex) {
+            while (m_mutex.test_and_set(std::memory_order::acq_rel)) {
+                m_mutex.wait(true, std::memory_order::relaxed);
             }
-        );
-    }
+        }
+        ~Lock() noexcept {
+            m_mutex.clear(std::memory_order::release);
+            m_mutex.notify_one();
+        }
+    };
 
 }
