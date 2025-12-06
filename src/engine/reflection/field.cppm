@@ -82,8 +82,7 @@ namespace fyuu_engine::reflection {
 	/// @brief	This is used to declare your field in the associated Reflective type
 	/// @tparam Name field name
 	/// @tparam MemberPtr field pointer
-	export template <util::FixedString Name, auto FieldPointer>
-		struct FieldDescriptor {
+	export template <util::FixedString Name, auto FieldPointer> struct FieldDescriptor {
 		static_assert(std::is_member_pointer_v<decltype(FieldPointer)>,
 			"Invalid field pointer");
 

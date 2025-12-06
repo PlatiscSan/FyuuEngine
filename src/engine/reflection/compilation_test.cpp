@@ -47,6 +47,7 @@ public:
 };
 
 int main(int argc, char** argv) {
+
 	Test test{ "test" };
 	Point p1{ 1.0f, 2.0f, "point1", &test };
 	Point p2{ 3.0f, 4.0f, "point2", nullptr };
