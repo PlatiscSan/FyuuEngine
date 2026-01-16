@@ -48,7 +48,7 @@
 	#define EXTERN_C
 #endif
 
-#ifdef STATIC_LIB
+#ifdef BUILD_STATIC_LIBS
 	#undef DLL_API
 	#define DLL_API
 	#undef DLL_CALL
