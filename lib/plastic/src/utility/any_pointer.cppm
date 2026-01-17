@@ -205,11 +205,19 @@ namespace plastic::utility {
 		AnyPointer(std::unique_ptr<U, D>&& ptr)
 			: m_ptr(std::in_place_type<std::unique_ptr<T, Deleter>>, std::move(ptr)),
 			m_cache(ptr.get()) {
+
+			static_assert(details::IsCompleteType<T>::value,
+				"std::unique_ptr is not available due to an incomplete type");
+
 		}
 
 		template <class U, class D>
 			requires std::convertible_to<U*, T*>
 		AnyPointer& operator=(std::unique_ptr<U, D>&& ptr) {
+
+			static_assert(details::IsCompleteType<T>::value,
+				"std::unique_ptr is not available due to an incomplete type");
+
 			std::lock_guard<std::shared_mutex> lock(m_mutex);
 			m_ptr.emplace<std::unique_ptr<T, Deleter>>(std::move(ptr));
 			m_cache.store(nullptr, std::memory_order::relaxed);
