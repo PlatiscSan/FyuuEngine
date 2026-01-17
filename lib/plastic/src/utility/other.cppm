@@ -9,7 +9,7 @@ namespace plastic::utility {
 
 	public:
 		Defer(Func&& func)
-			: m_func(std::forward<Func>(func)) {
+			: m_func(std::move(func)) {
 		}
 
 		Defer(Defer const&) = delete;
