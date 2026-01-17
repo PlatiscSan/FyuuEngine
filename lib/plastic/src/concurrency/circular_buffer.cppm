@@ -45,6 +45,14 @@ namespace plastic::concurrency {
 		alignas(std::hardware_destructive_interference_size) std::atomic<size_type> m_committed;
 
 	public:
+		CircularBuffer() = default;
+
+		CircularBuffer(std::span<T const> view) {
+			for (size_type i = 0; i < std::min(view.size(), Capacity); ++i) {
+				emplace_back(view[i]);
+			}
+		}
+
 		~CircularBuffer() noexcept {
 			while (!empty()) {
 				(void)pop_front();
