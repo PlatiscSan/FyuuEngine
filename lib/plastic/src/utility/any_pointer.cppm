@@ -152,12 +152,68 @@ namespace plastic::utility {
 			return *this;
 		}
 
-		template <class Pointer>
-			requires std::is_constructible_v<Variant, std::in_place_type_t<std::remove_const_t<std::decay_t<Pointer>>>, std::decay_t<Pointer>>
-		AnyPointer(Pointer&& ptr)
-			: m_ptr(std::in_place_type<std::remove_const_t<std::decay_t<Pointer>>>, std::forward<Pointer>(ptr)),
-			m_cache(nullptr) {
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer(U* ptr)
+			: m_ptr(std::in_place_type<T*>, ptr),
+			m_cache(ptr) {
+		}
 
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer& operator=(U* ptr) {
+			std::lock_guard<std::shared_mutex> lock(m_mutex);
+			m_ptr.emplace<T*>(ptr);
+			m_cache.store(ptr, std::memory_order::relaxed);
+			return *this;
+		}
+
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer(std::shared_ptr<U> const& ptr)
+			: m_ptr(std::in_place_type<std::shared_ptr<T>>, ptr),
+			m_cache(ptr.get()) {
+		}
+
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer& operator=(std::shared_ptr<U> const& ptr) {
+			std::lock_guard<std::shared_mutex> lock(m_mutex);
+			m_ptr.emplace<std::shared_ptr<T>>(ptr);
+			m_cache.store(ptr.get(), std::memory_order::relaxed);
+			return *this;
+		}
+
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer(std::weak_ptr<U> const& ptr)
+			: m_ptr(std::in_place_type<std::weak_ptr<T>>, ptr),
+			m_cache(nullptr) {
+		}
+
+		template <class U>
+			requires std::convertible_to<U*, T*>
+		AnyPointer& operator=(std::weak_ptr<U> const& ptr) {
+			std::lock_guard<std::shared_mutex> lock(m_mutex);
+			m_ptr.emplace<std::weak_ptr<T>>(ptr);
+			m_cache.store(nullptr, std::memory_order::relaxed);
+			return *this;
+		}
+
+		template <class U, class D>
+			requires std::convertible_to<U*, T*>
+		AnyPointer(std::unique_ptr<U, D>&& ptr)
+			: m_ptr(std::in_place_type<std::unique_ptr<T, Deleter>>, std::move(ptr)),
+			m_cache(ptr.get()) {
+		}
+
+		template <class U, class D>
+			requires std::convertible_to<U*, T*>
+		AnyPointer& operator=(std::unique_ptr<U, D>&& ptr) {
+			std::lock_guard<std::shared_mutex> lock(m_mutex);
+			m_ptr.emplace<std::unique_ptr<T, Deleter>>(std::move(ptr));
+			m_cache.store(nullptr, std::memory_order::relaxed);
+			return *this;
 		}
 
 		AnyPointer& operator=(std::nullptr_t) {
@@ -191,15 +247,6 @@ namespace plastic::utility {
 				m_ptr = AnyPointer::Copy(other.m_mutex, other.m_ptr);
 				m_cache.store(other.m_cache.load(std::memory_order::relaxed), std::memory_order::relaxed);
 			}
-			return *this;
-		}
-
-		template <class Pointer>
-			requires std::is_constructible_v<Variant, std::in_place_type_t<std::remove_const_t<std::decay_t<Pointer>>>, std::decay_t<Pointer>>
-		AnyPointer& operator=(Pointer&& ptr) {
-			std::lock_guard<std::shared_mutex> lock(m_mutex);
-			m_ptr.emplace<std::remove_const_t<std::decay_t<Pointer>>>(std::forward<Pointer>(ptr));
-			m_cache.store(nullptr, std::memory_order::relaxed);
 			return *this;
 		}
 
@@ -482,9 +529,9 @@ namespace plastic::utility {
 		}
 
 		template <class Pointer>
-			requires std::is_constructible_v<Variant, std::in_place_type_t<std::remove_const_t<std::decay_t<Pointer>>>, std::decay_t<Pointer>>
+			requires std::is_constructible_v<Variant, std::decay_t<Pointer>>
 		AnyPointer(Pointer&& ptr)
-			: m_ptr(std::in_place_type<std::remove_const_t<std::decay_t<Pointer>>>, std::forward<Pointer>(ptr)),
+			: m_ptr(std::forward<Pointer>(ptr)),
 			m_cache(nullptr) {
 
 		}
@@ -513,10 +560,10 @@ namespace plastic::utility {
 		}
 
 		template <class Pointer>
-			requires std::is_constructible_v<Variant, std::in_place_type_t<std::remove_const_t<std::decay_t<Pointer>>>, std::decay_t<Pointer>>
+			requires std::is_constructible_v<Variant, std::decay_t<Pointer>>
 		AnyPointer& operator=(Pointer&& ptr) {
 			std::lock_guard<std::shared_mutex> lock(m_mutex);
-			m_ptr.emplace<std::remove_const_t<std::decay_t<Pointer>>>(std::forward<Pointer>(ptr));
+			m_ptr = std::forward<Pointer>(ptr);
 			m_cache.store(nullptr, std::memory_order::relaxed);
 			return *this;
 		}
