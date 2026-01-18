@@ -1,0 +1,169 @@
+{
+    "version": "1.0.0",
+    "cpp_module_name": "fyuu_engine",
+    "cpp_module_partition": "enums",
+    "interfaces": ["c", "cpp_module"],
+    "prefix": "Fyuu",
+    "enums": [
+        {
+            "name": "ErrorCode",
+            "description": "Error codes for the engine",
+            "elements": [
+                "Success",
+                "Unsupported", 
+                "BadAllocation",
+                "InvalidPointer",
+                "InvalidParameter",
+                "SystemError",
+                "UnknownError"
+            ]
+        },
+        {
+            "name": "API",
+            "description": "Graphics API types",
+            "elements": [
+                "PlatformDefault",
+                "Vulkan",
+                "DirectX12",
+                "Metal",
+                "OpenGL"
+            ]
+        },
+        {
+            "name": "CommandObjectType",
+            "description": "Command buffer object types",
+            "elements": [
+                "AllCommands",
+                "Compute",
+                "Copy"
+            ]
+        },
+        {
+            "name": "QueuePriority",
+            "description": "Command queue priority levels",
+            "elements": [
+                "High",
+                "Medium", 
+                "Low"
+            ]
+        },
+        {
+            "name": "VideoMemoryType",
+            "description": "Types of video memory",
+            "elements": [
+                "DeviceLocal",
+                "HostVisible",
+                "DeviceReadback"
+            ]
+        },
+        {
+            "name": "ShaderLanguage",
+            "description": "Shader programming languages",
+            "elements": [
+                "HLSL",
+                "GLSL"
+            ]
+        },
+        {
+            "name": "ShaderStage",
+            "description": "Shader pipeline stages",
+            "elements": [
+                "Vertex",
+                "Fragment"
+            ]
+        },
+        {
+            "name": "VideoMemoryUsage",
+            "description": "Video memory usage types",
+            "elements": [
+                "VertexBuffer",
+                "IndexBuffer",
+                "Texture1D", 
+                "Texture2D",
+                "Texture3D"
+            ]
+        },
+        {
+            "name": "ResourceType",
+            "description": "GPU resource types",
+            "elements": [
+                "VertexBuffer",
+                "IndexBuffer",
+                "Texture1D",
+                "Texture2D",
+                "Texture3D"
+            ]
+        },
+        {
+            "name": "Key",
+            "description": "Keyboard key codes",
+            "elements": [
+                "Back",
+                "Tab",
+                "Enter",
+                "Escape",
+                "Space",
+                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+                "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+                "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9",
+                "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+                "Left", "Right", "Up", "Down",
+                "LeftShift", "RightShift",
+                "LeftCtrl", "RightCtrl",
+                "LeftAlt", "RightAlt",
+                "LeftWin", "RightWin",
+                "CapsLock", "NumLock", "ScrollLock",
+                "PrintScreen", "Pause",
+                "Insert", "Delete", "Home", "End", "PageUp", "PageDown"
+            ]
+        },
+        {
+            "name": "Action",
+            "description": "Input action types",
+            "elements": [
+                "KeyPressed", 
+                "KeyRelease", 
+                "KeyRepeat",
+                "MouseButtonDown", 
+                "MouseButtonUp", 
+                "MouseMove"
+            ]
+        }
+    ],
+    "flags": [
+        {
+            "name": "SurfaceFlag",
+            "description": "Surface creation flags",
+            "bits": [
+                "Wayland"
+            ],
+            "generate_common_combinations": false
+        },
+        {
+            "name": "InputCommand",
+            "description": "Input command flags for player controls",
+            "bits": [
+                "Forward", 
+                "Backward", 
+                "Left", 
+                "Right", 
+                "Jump", 
+                "Squat", 
+                "Sprint", 
+                "Attack", 
+                "FreeCamera"
+            ]
+        },
+        {
+            "name": "MouseButton",
+            "description": "Mouse button flags",
+            "bits": [
+                "Left",
+                "Right",
+                "Middle",
+                "X1",
+                "X2"
+            ]
+        }
+    ]
+}
