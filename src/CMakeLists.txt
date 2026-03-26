@@ -1,5 +1,22 @@
 # src/CMakeLists.txt
-project(Engine)
+cmake_minimum_required(VERSION 4.2.3)
+set(CMAKE_CXX_MODULES ON) 
+
+# Set experimental flag to enable `import std` support from CMake.
+# This must be enabled before C++ language support.
+set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+  # This specific value changes as experimental support evolves. See
+  # `Help/dev/experimental.rst` in the CMake source corresponding to
+  # your CMake build for the exact value to use.
+  "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
+
+project(FyuuEngine)
+
+include(${PROJECT_ROOT_DIR}/cmake/disable_rtti.cmake)
+include(${PROJECT_ROOT_DIR}/cmake/collect_cxx_modules.cmake)
+include(${PROJECT_ROOT_DIR}/cmake/collect_sources.cmake)
+include(${PROJECT_ROOT_DIR}/cmake/collect_headers.cmake)
+
 
 if(BUILD_SHARED_LIBS)
     add_library(${PROJECT_NAME} SHARED)
@@ -11,29 +28,31 @@ else()
     )
 endif()
 
-collect_sources(${ENGINE_SOURCE_DIR}/input "input"
-    input_sources
+collect_sources(${ENGINE_SOURCE_DIR} ""
+    sources
 )
 
-collect_sources(${ENGINE_SOURCE_DIR}/rhi "RHI"
-    rhi_sources
-)
-
-collect_cxx_modules(${ENGINE_SOURCE_DIR}/rhi "RHI"
-    rhi_modules 
-    rhi_module_impls
+collect_cxx_modules(${ENGINE_SOURCE_DIR} ""
+    modules 
+    module_impls
 )
 
 target_sources(${PROJECT_NAME}
     PUBLIC 
-        ${public_headers}
-    PUBLIC FILE_SET CXX_MODULES FILES 
-        ${rhi_modules}
+        ${PUBLIC_HEADERS}
+)
+
+target_sources(${PROJECT_NAME}
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS
+            ${PROJECT_ROOT_DIR}/module
+            ${CMAKE_CURRENT_SOURCE_DIR}
+        FILES 
+            ${MODULE_INTERFACES}
+            ${modules}
     PRIVATE
-	${input_sources}
-        ${rhi_module_impls}
-        ${rhi_sources}
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/main.cpp
+        ${module_impls}
+        ${sources}
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -45,13 +64,35 @@ target_include_directories(${PROJECT_NAME}
 
 disable_rtti(${PROJECT_NAME})
 
+target_compile_features(${PROJECT_NAME}
+    PRIVATE   cxx_std_23
+    INTERFACE cxx_std_20)
+
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         plastic
-        fyuu_rhi
-        imgui::imgui
+        FyuuRHI
+        # Boost
         Boost::uuid
+        Boost::thread
+        
+        # command line parser
+        CLI11::CLI11
+
+        # graphics
+        SDL3::SDL3
+        imgui::imgui
+
         Eigen3::Eigen
         Jolt::Jolt
+
+        # log
         spdlog::spdlog
+
+        # serialization
+        yaml-cpp::yaml-cpp
+        nlohmann_json::nlohmann_json
+
+        # parallel programming
+        TBB::tbb TBB::tbbmalloc TBB::tbbbind_2_5 TBB::tbbmalloc_proxy
 )

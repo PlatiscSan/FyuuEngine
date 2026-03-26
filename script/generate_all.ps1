@@ -1,0 +1,1 @@
+python generate_enums.py --config ../config/enums.json --header ../include --module ../module

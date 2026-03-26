@@ -1,5 +1,4 @@
-function(collect_cxx_modules base_dir group_name)
-
+function(collect_cxx_modules base_dir group_name out_all_var)
     file(GLOB_RECURSE all_module_files 
         "${base_dir}/*.ixx"
         "${base_dir}/*.cppm"
@@ -27,7 +26,7 @@ function(collect_cxx_modules base_dir group_name)
             set(dir_group "${group_name}\\${dir_path}")
         endif()
         
-        source_group("module\\${dir_group}" FILES ${module_file})
+        source_group("Module\\${dir_group}" FILES ${module_file})
         list(APPEND modules_by_dir ${module_file})
     endforeach()
     
@@ -41,14 +40,11 @@ function(collect_cxx_modules base_dir group_name)
             set(dir_group "${group_name}\\${dir_path}")
         endif()
         
-        source_group("implementation\\${dir_group}" FILES ${impl_file})
+        source_group("Implementation\\${dir_group}" FILES ${impl_file})
         list(APPEND impls_by_dir ${impl_file})
     endforeach()
     
     set(all_files ${modules_by_dir} ${impls_by_dir})
     
-    set(${ARGV2} ${modules_by_dir} PARENT_SCOPE)
-    set(${ARGV3} ${impls_by_dir} PARENT_SCOPE)
-    set(${ARGV4} ${all_files} PARENT_SCOPE)
-
+    set(${out_all_var} ${all_files} PARENT_SCOPE)
 endfunction()

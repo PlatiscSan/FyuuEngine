@@ -20,7 +20,6 @@ add_subdirectory(PixEvents/third_party/wil)
 set(ETW_PATH "${CMAKE_CURRENT_BINARY_DIR}/PIXETW.h")
 set(ETW_INPUT "${CMAKE_CURRENT_LIST_DIR}/PixEvents/runtime/lib/PIXETW.man")
 add_custom_command(
-	PRE_BUILD 
 	OUTPUT "${ETW_PATH}"
 	DEPENDS "${ETW_INPUT}"
 	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
