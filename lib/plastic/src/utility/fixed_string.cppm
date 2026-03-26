@@ -1,6 +1,14 @@
+module;
+#include <version>
+#if !defined(__cpp_lib_modules)
+#include <array>
+#include <algorithm>
+#include <iostream>
+#endif // !defined(__cpp_lib_modules)
 export module plastic.fixed_string;
+#if defined(__cpp_lib_modules)
 import std;
-
+#endif // defined(__cpp_lib_modules)
 namespace plastic::utility {
 
 	export template <std::size_t N> struct FixedString {
@@ -69,11 +77,11 @@ namespace plastic::utility {
 		
 		std::array<char, N1 + N2 - 1> result{};
 
-		[] <std::size_t... I1>(std::index_sequence<I1...>, auto& result, auto const& s1) {
+		[]<std::size_t... I1>(std::index_sequence<I1...>, auto& result, auto const& s1) {
 			((result[I1] = s1[I1]), ...);
 		}(std::make_index_sequence<N1 - 1>{}, result, s1);
 
-		[] <std::size_t... I2>(std::index_sequence<I2...>, auto& result, auto const& s2) {
+		[]<std::size_t... I2>(std::index_sequence<I2...>, auto& result, auto const& s2) {
 			((result[N1 - 1 + I2] = s2[I2]), ...);
 		}(std::make_index_sequence<N2>{}, result, s2);
 

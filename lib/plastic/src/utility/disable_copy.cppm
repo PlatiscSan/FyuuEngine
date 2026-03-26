@@ -1,9 +1,7 @@
 export module plastic.disable_copy;
-import std;
-
 namespace plastic::utility {
 
-    export template <class T> class DisableCopy {
+    export class DisableCopy {
     public:
         DisableCopy() = default;
 
