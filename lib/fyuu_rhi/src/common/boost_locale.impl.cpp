@@ -1,11 +1,19 @@
+/* boost_locale.impl.cpp */
 module;
-#include <boost/locale.hpp>
-
+#include <version>
+#if !defined(__cpp_lib_modules)
+#include <string>
+#include <string_view>
+#include <memory_resource>
+#endif // !defined(__cpp_lib_modules)
+#include "boost.hpp"
 module fyuu_rhi:boost_locale;
+#if defined(__cpp_lib_modules)
+import std;
+#endif // defined(__cpp_lib_modules)
 import plastic.other;
 
-namespace fyuu_rhi::common {
-	
+namespace fyuu_rhi {
 	void InitializeBoostLocale() {
 		plastic::utility::InitializeGlobalInstance(
 			[]() {

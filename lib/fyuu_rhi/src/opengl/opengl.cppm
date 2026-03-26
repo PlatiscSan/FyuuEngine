@@ -1,0 +1,14 @@
+export module fyuu_rhi:opengl;
+export import :opengl_physical_device;
+export import :opengl_logical_device;
+export import :opengl_command_queue;
+export import :opengl_command_buffer;
+export import :opengl_resource;
+export import :opengl_view;
+export import :opengl_surface;
+export import :opengl_swap_chain;
+export import :opengl_future;
+export import :opengl_sampler;
+export import :opengl_shader;
+export import :opengl_shader_data_segment;
+export import :opengl_gpu_executable;

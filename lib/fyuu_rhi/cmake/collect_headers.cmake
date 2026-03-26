@@ -27,14 +27,14 @@ function(collect_headers base_dir group_name)
     set(all_headers ${headers} ${tpl_headers} ${module_headers})
     
     if(all_headers)
-        source_group("header\\${group_name}" FILES ${all_headers})
+        source_group("Header\\${group_name}" FILES ${all_headers})
         
         if(tpl_headers)
-            source_group("header\\${group_name}\\templates" FILES ${tpl_headers})
+            source_group("Header\\${group_name}\\templates" FILES ${tpl_headers})
         endif()
         
         if(module_headers)
-            source_group("header\\${group_name}\\modules" FILES ${module_headers})
+            source_group("Header\\${group_name}\\modules" FILES ${module_headers})
         endif()
     endif()
     

@@ -1,0 +1,14 @@
+/* fyuu_rhi.cppm */
+export module fyuu_rhi;
+export import :enums;
+export import :types;
+export import :physical_device;
+export import :logical_device;
+export import :command_queue;
+export import :command_buffer;
+export import :surface;
+export import :resource;
+export import :swap_chain;
+export import :shader;
+export import :shader_data_segment;
+export import :gpu_executable;

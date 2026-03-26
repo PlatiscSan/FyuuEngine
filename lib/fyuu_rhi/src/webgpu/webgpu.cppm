@@ -1,0 +1,14 @@
+export module fyuu_rhi:webgpu;
+export import :webgpu_physical_device;
+export import :webgpu_logical_device;
+export import :webgpu_command_queue;
+export import :webgpu_command_buffer;
+export import :webgpu_resource;
+export import :webgpu_view;
+export import :webgpu_surface;
+export import :webgpu_swap_chain;
+export import :webgpu_future;
+export import :webgpu_sampler;
+export import :webgpu_shader;
+export import :webgpu_shader_data_segment;
+export import :webgpu_gpu_executable;

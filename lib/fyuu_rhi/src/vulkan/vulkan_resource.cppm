@@ -1,90 +1,131 @@
+module;
+#include <version>
+#if !defined(__cpp_lib_modules)
+#include <optional>
+#include <variant>
+#include <span>
+#endif // !defined(__cpp_lib_modules)
+#include <vma/vk_mem_alloc.h>
 export module fyuu_rhi:vulkan_resource;
+#if !defined(__APPLE__)
+#if defined(__cpp_lib_modules)
 import std;
-import plastic.any_pointer;
-import plastic.registrable;
-import vulkan_hpp;
-import :resource;
-import :vulkan_memory;
+#endif // defined(__cpp_lib_modules)
+import vulkan;
+import plastic.resource;
+import :types;
+import :vulkan_common;
 
 namespace fyuu_rhi::vulkan {
 
+	export struct VulkanResourceState {
+		vk::PipelineStageFlags2 stage;
+		vk::AccessFlags2 access;
+		vk::ImageLayout layout;
+	};
+
 	export class VulkanResource
-		: public plastic::utility::Registrable<VulkanResource>,
-		public IResource {
-		friend class IResource;
-	public:
-		class MappedHandleGC;
-		struct MappedHandle {
-			void* ptr;
-			std::uintptr_t begin;
-			std::uintptr_t end;
+		: public PolymorphicResourceBase,
+		public VulkanCommon<VulkanResource> {
+	private:
+		struct BufferHandle {
+			vk::BufferCreateInfo buffer_info;
+			vk::Buffer impl;
+			VmaAllocation allocation;
+			VmaAllocationInfo alloc_info;
+			vk::Format format;
 		};
 
-		using UniqueMappedHandle = plastic::utility::UniqueResource<MappedHandle, MappedHandleGC>;
+		class BufferHandleGC {
+		private:
+			std::optional<std::size_t> m_logical_device_id;
 
-	private:
-		std::size_t m_width;
-		std::size_t m_height;
-		std::size_t m_depth;
-		ResourceType m_type;
-		std::variant<std::monostate, UniqueVulkanBufferHandle, UniqueVulkanTextureHandle> m_handle;
+		public:
+			BufferHandleGC(VulkanLogicalDevice const& logical_device) noexcept;
 
-		void ReleaseImpl() noexcept;
+			void operator()(BufferHandle& handle) noexcept;
 
-		void SetMemoryHandleImpl(UniqueVulkanBufferHandle&& handle);
-		void SetMemoryHandleImpl(UniqueVulkanTextureHandle&& handle);
+		};
 
-		UniqueMappedHandle MapImpl(std::uintptr_t begin, std::uintptr_t end);
+		using UniqueBufferHandle = plastic::utility::UniqueResource<BufferHandle, BufferHandleGC>;
 
-		void SetDeviceLocalBuffer(
-			VulkanLogicalDevice& logical_device,
-			VulkanCommandQueue& copy_queue,
-			std::span<std::byte const> raw,
-			std::size_t offset
-		);
+		struct TextureHandle {
+			vk::ImageCreateInfo texture_info;
+			vk::Image impl;
+			VmaAllocation allocation;
+			VmaAllocationInfo alloc_info;
+		};
 
-		void SetHostVisibleBuffer(
-			std::span<std::byte const> raw,
-			std::size_t offset
-		);
+		class TextureHandleGC {
+		private:
+			std::optional<std::size_t> m_logical_device_id;
 
-		void SetBufferDataImpl(
-			VulkanLogicalDevice& logical_device,
-			VulkanCommandQueue& copy_queue,
-			std::span<std::byte const> raw,
-			std::size_t offset = 0
-		);
+		public:
+			TextureHandleGC(VulkanLogicalDevice const& logical_device) noexcept;
+
+			void operator()(TextureHandle& handle) noexcept;
+
+		};
+
+		using UniqueTextureHandle = plastic::utility::UniqueResource<TextureHandle, TextureHandleGC>;
+
+		struct BackBuffer {
+			vk::Image impl;	
+			TextureSize size;
+			vk::Format format;
+		};
+
+		VulkanResourceState m_state;
+		std::variant<std::monostate, UniqueBufferHandle, UniqueTextureHandle, BackBuffer> m_handle;
 
 	public:
-		static VulkanResource CreateVertexBuffer(std::size_t size_in_bytes);
-		static VulkanResource CreateIndexBuffer(std::size_t size_in_bytes);
+		VulkanResource(VulkanLogicalDevice const& logical_device, BufferSize buffer_size, VideoMemoryType type, ResourceFlags flags);
 
-		VulkanResource(std::size_t width, std::size_t height, std::size_t depth, ResourceType type);
-		VulkanResource(plastic::utility::AnyPointer<VulkanVideoMemory> const& memory, std::size_t width, std::size_t height, std::size_t depth, ResourceType type);
-		VulkanResource(VulkanVideoMemory& memory, std::size_t width, std::size_t height, std::size_t depth, ResourceType type);
-		VulkanResource(VulkanResource&& other) noexcept;
+		VulkanResource(VulkanLogicalDevice const& logical_device, TextureSize const& texture_size, VideoMemoryType type, ResourceFlags flags);
 
-		~VulkanResource() noexcept;
+		VulkanResource(vk::Image back_buffer, vk::Format back_buffer_format, std::size_t width, std::size_t height);
 
-		vk::Buffer GetBufferNative() const;
+		union Native {
+			vk::Image texture;
+			vk::Buffer buffer;
+
+			Native()
+				: texture(nullptr) {
+
+			}
+
+			Native(vk::Image texture_)
+				: texture(texture_) {
+
+			}
+
+			Native(vk::Buffer buffer_)
+				: buffer(buffer_) {
+
+			}
+
+		};
+		
+		Native GetNative() const noexcept;
+
+		vk::Format GetFormat() const noexcept; 
+
+		vk::ImageCreateInfo const* GetTextureDescription() const noexcept;
+
+		vk::BufferCreateInfo const* GetBufferDescription() const noexcept;
+
+		VulkanResourceState const& GetState() const noexcept;
+
+		void SetState(VulkanResourceState const& state) noexcept;
+
+		TextureSize GetTextureSize() const noexcept;
+
+		vk::ImageAspectFlags GetAspectFlags() const noexcept;
+
+		vk::ImageSubresourceRange WholeResourceRange() const noexcept;
 
 	};
 
-	class VulkanResource::MappedHandleGC {
-	private:
-		std::size_t m_resource_id;
-
-	public:
-		MappedHandleGC(std::size_t resource_id) noexcept;
-		MappedHandleGC(MappedHandleGC const& other) noexcept;
-		MappedHandleGC(MappedHandleGC&& other) noexcept;
-
-		MappedHandleGC& operator=(MappedHandleGC const& other) noexcept;
-		MappedHandleGC& operator=(MappedHandleGC&& other) noexcept;
-
-		void operator()(MappedHandle& handle);
-
-		std::size_t GetResourceID() const noexcept;
-	};
 
 }
+#endif // !defined(__APPLE__)

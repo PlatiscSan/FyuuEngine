@@ -1,12 +1,15 @@
 cmake_minimum_required(VERSION 3.28)
-project(fyuu_rhi VERSION 1.0.0 LANGUAGES CXX)
+project(FyuuRHI VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Boost locale
+# Boost
 find_package(Boost REQUIRED COMPONENTS locale)
+find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED COMPONENTS uuid)
+find_package(Boost REQUIRED COMPONENTS container)
 
 # Find Vulkan package and check version
 find_package(Vulkan REQUIRED)
@@ -18,8 +21,10 @@ if(Vulkan_VERSION VERSION_LESS "1.3.256")
 endif()
 
 # Vulkan memory allocator
-
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+
+# webgpu Dawn
+find_package(Dawn CONFIG REQUIRED)
 
 # shader compiler
 find_package(spirv_cross_core CONFIG REQUIRED)
@@ -40,57 +45,33 @@ if(WIN32)
     find_package(D3D12MemoryAllocator CONFIG REQUIRED)
 endif(WIN32)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/collect_sources.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/collect_cxx_modules.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/disable_rtti.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/collect_headers.cmake)
 
-# set up Vulkan C++ module as a library
-add_library(VulkanHppModule STATIC)
-disable_rtti(VulkanHppModule)
-target_sources(VulkanHppModule 
-    PRIVATE
-        FILE_SET CXX_MODULES
-        TYPE CXX_MODULES
-        BASE_DIRS ${Vulkan_INCLUDE_DIR}
-        FILES ${Vulkan_INCLUDE_DIR}/vulkan/vulkan.cppm
-)
-target_compile_features(VulkanHppModule 
-    PUBLIC 
-        cxx_std_20
-)
-target_link_libraries(VulkanHppModule 
-    PUBLIC 
-        Vulkan::Vulkan
-)
-target_compile_definitions(VulkanHppModule 
-    PRIVATE
-        VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
-        #VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL
-)
-if(WIN32)
-target_compile_definitions(VulkanHppModule 
-    PRIVATE
-        VK_USE_PLATFORM_WIN32_KHR
-)
-elseif(UNIX)
-target_compile_definitions(VulkanHppModule 
-    PRIVATE
-        VK_USE_PLATFORM_WAYLAND_KHR
-        VK_USE_PLATFORM_XLIB_KHR
-)
-elseif(ANDROID)
-target_compile_definitions(VulkanHppModule 
-    PRIVATE
-        VkAndroidSurfaceCreateInfoKHR
-)
-endif(WIN32)
-
 add_library(${PROJECT_NAME} STATIC)
 
+collect_sources(${CMAKE_CURRENT_SOURCE_DIR}/src ""
+    sources
+)
+
+if(WIN32)
+    list(FILTER sources EXCLUDE REGEX ".*glad_glx\\.c$|.*glad_egl\\.c$|.*glad_x11\\.c$")
+elseif(UNIX)
+    list(FILTER sources EXCLUDE REGEX ".*glad_wgl\\.c$")
+elseif(ANDROID)
+    list(FILTER sources EXCLUDE REGEX ".*glad_glx\\.c$|.*glad_wgl\\.c$")
+elseif(APPLE)
+    list(FILTER sources EXCLUDE REGEX ".*glad_glx\\.c$|.*glad_egl\\.c$|.*glad_wgl\\.c$")
+endif()
+
+collect_cxx_modules(${CMAKE_CURRENT_SOURCE_DIR}/module "interface"
+    interface_modules 
+)
+
 collect_cxx_modules(${CMAKE_CURRENT_SOURCE_DIR}/src ""
-    rhi_modules 
-    rhi_module_impls 
-    all_rhi_files
+    implementation_modules 
 )
 
 collect_headers(${CMAKE_CURRENT_SOURCE_DIR}/include/ ""
@@ -103,18 +84,19 @@ target_include_directories(${PROJECT_NAME}
 )
 
 target_sources(${PROJECT_NAME}
-    PRIVATE FILE_SET CXX_MODULES FILES 
-        ${rhi_modules}
+    PUBLIC FILE_SET CXX_MODULES FILES 
+        ${interface_modules}
+        ${implementation_modules}
     PRIVATE 
         ${public_headers}
     PRIVATE
-        ${rhi_module_impls}
-        ${interface_impl}
+        ${sources}
 )
 
 target_compile_definitions(${PROJECT_NAME} 
-    PRIVATE
-        VMA_IMPLEMENTATION
+    PUBLIC
+        VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+        PIX_ENABLED
 )
 
 disable_rtti(${PROJECT_NAME})
@@ -122,14 +104,18 @@ disable_rtti(${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         plastic
-        fyuu_glad
-
-        Vulkan::Vulkan
-        GPUOpen::VulkanMemoryAllocator
-
+        #-- Boost
+        Boost::system
+        Boost::locale
+        Boost::uuid
+        Boost::container
+        #-- Vulkan
         VulkanHppModule
-
-        glslang::glslang glslang::glslang-default-resource-limits glslang::SPIRV glslang::SPVRemapper
+        GPUOpen::VulkanMemoryAllocator
+        #-- webgpu Dawn
+        dawn::webgpu_dawn
+        #-- shader compiler
+        glslang::glslang glslang::glslang-default-resource-limits glslang::SPIRV
         spirv-cross-core
         spirv-cross-glsl
         spirv-cross-hlsl
@@ -137,7 +123,6 @@ target_link_libraries(${PROJECT_NAME}
         spirv-cross-reflect
         spirv-cross-util
         spirv-cross-cpp
-        Boost::locale
 )
 
 if(WIN32)
@@ -150,5 +135,8 @@ if(WIN32)
             Microsoft::DirectXShaderCompiler
 
             WinPixEventRuntime
+
+            Opengl32.lib
     )
 endif()
+

@@ -1,165 +1,74 @@
+/* vulkan_surface.cppm */
 module;
-#if defined(_WIN32)
-#include <Windows.h>
-#elif defined(__linux__)
-#include <X11/Xlib.h>
-#include <wayland-client-core.h>
-#include <wayland-util.h>
-#elif defined(__ANDROID__)
-#include <android/native_window.h>
-#endif // defined(_WIN32)
-
-module fyuu_rhi:vulkan_surface;
+#include <version>
+#if !defined(__cpp_lib_modules)
+#include <utility>
+#include <stdexcept>
+#endif // !defined(__cpp_lib_modules)
+#include "platform.hpp"
+module fyuu_rhi:vulkan_surface_impl;
+#if !defined(__APPLE__)
+#if defined(__cpp_lib_modules)
+import std;
+#endif // defined(__cpp_lib_modules)
+import :vulkan_surface;
+import vulkan;
+import :types;
+import :platform_handle;
 import :vulkan_physical_device;
+import :vulkan_common;
 
 namespace fyuu_rhi::vulkan {
 
-#if defined(_WIN32)
-
-	static vk::UniqueSurfaceKHR CreateSurface(
-		vk::Instance const& instance,
-		HWND window_handle
-	) {
-		vk::Win32SurfaceCreateInfoKHR create_info({}, GetModuleHandle(nullptr), window_handle, nullptr);
-		return instance.createWin32SurfaceKHRUnique(create_info, nullptr, vk::detail::defaultDispatchLoaderDynamic);
-	}
-
-	VulkanSurface::VulkanSurface(
-		vk::Instance const& instance,
-		HWND window_handle
-	) : m_window_handle(window_handle),
-		m_impl(CreateSurface(instance, m_window_handle)) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		plastic::utility::AnyPointer<VulkanPhysicalDevice> const& physical_device,
-		HWND window_handle
-	) : VulkanSurface(physical_device->GetInstance(), window_handle) {
-
-	}
-
-	VulkanSurface::VulkanSurface(VulkanPhysicalDevice const& physical_device, HWND window_handle)
-		: VulkanSurface(physical_device.GetInstance(), window_handle) {
-	}
-
-#elif defined(__linux__)
-
-	static vk::UniqueSurfaceKHR CreateSurface(
-		vk::Instance const& instance,
-		wl_display* display,
-		wl_surface* surface
-	) {
-		vk::WaylandSurfaceCreateInfoKHR create_info({}, display, surface);
-		return instance.createWaylandSurfaceKHRUnique(create_info, nullptr, vk::detail::defaultDispatchLoaderDynamic);
-	}
-
-	static vk::UniqueSurfaceKHR CreateSurface(
-		vk::Instance const& instance,
-		Display* display,
-		Window window
-	) {
-		vk::XlibSurfaceCreateInfoKHR create_info({}, display, window);
-		return instance.createXlibSurfaceKHRUnique(create_info, nullptr, vk::detail::defaultDispatchLoaderDynamic);
-	}
-
-	VulkanSurface::VulkanSurface(
-		vk::Instance const& instance,
-		wl_display* display,
-		wl_surface* surface
-	) : m_handle(std::in_place_type<Wayland>, { display, surface }),
-		m_impl(VulkanSurface::CreateSurfaceFromWayland(instance, display, surface)) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		plastic::utility::AnyPointer<VulkanPhysicalDevice> const& physical_device,
-		wl_display* display,
-		wl_surface* surface
-	) : VulkanSurface(physical_device->GetInstance(), display, surface) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		VulkanPhysicalDevice const& physical_device, 
-		wl_display* display,
-		wl_surface* surface
-	) : VulkanSurface(physical_device.GetInstance(), window_handle) {
-	}
-
-	VulkanSurface::VulkanSurface(
-		vk::Instance const& instance,
-		Display* display,
-		Window window
-	) : m_handle(std::in_place_type<Xlib>, { display, window }),
-		m_impl(VulkanSurface::CreateSurfaceFromXlib(instance, display, window)) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		plastic::utility::AnyPointer<VulkanPhysicalDevice> const& physical_device,
-		Display* display,
-		Window window
-	) : VulkanSurface(physical_device->GetInstance(), display, window) {
-
-	}
-
 	VulkanSurface::VulkanSurface(
 		VulkanPhysicalDevice const& physical_device,
-		Display* display,
-		Window window
-	) : VulkanSurface(physical_device.GetInstance(), display, window) {
-	}
-
-#elif defined(__ANDROID__)
-
-	static vk::UniqueSurfaceKHR CreateSurface(
-		vk::Instance const& instance,
-		ANativeWindow* window_handle
-	) {
-		vk::AndroidSurfaceCreateInfoKHR create_info({}, window_handle);
-		return instance.m_impl->createAndroidSurfaceKHRUnique(create_info, nullptr, vk::detail::defaultDispatchLoaderDynamic);
-	}
-
-	VulkanSurface::VulkanSurface(
-		vk::Instance const& instance,
-		ANativeWindow* window_handle
-	) : m_window_handle(window_handle),
-		m_impl(CreateSurface(instance, m_window_handle)) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		plastic::utility::AnyPointer<VulkanPhysicalDevice> const& physical_device,
-		ANativeWindow* window_handle
-	) : VulkanSurface(physical_device->GetInstance(), window_handle) {
-
-	}
-
-	VulkanSurface::VulkanSurface(
-		VulkanPhysicalDevice const& physical_device,
-		ANativeWindow* window_handle
-	) : VulkanSurface(physical_device.GetInstance(), window_handle) {
-
-	}
-
-#endif // defined(_WIN32)
-
-	std::pair<std::uint32_t, std::uint32_t> VulkanSurface::GetWidthAndHeightImpl() const {
+		PlatformHandle const& handle
+	) : PolymorphicSurfaceBase(this),
+        VulkanCommon(this),
+        m_handle(handle),
+        m_impl(
+            [&physical_device, &handle]() {
 #if defined(_WIN32)
-		RECT client_rect{};
-		GetClientRect(m_window_handle, &client_rect);
-
-		return { client_rect.right - client_rect.left, client_rect.bottom - client_rect.top };
+                vk::Win32SurfaceCreateInfoKHR info({}, GetModuleHandle(nullptr), handle.impl, nullptr);
+                return physical_device.CreateSurface(info);
 #elif defined(__linux__)
-
+                return std::visit(
+                    [](auto&& arg) -> vk::UniqueSurface {
+                        using T = std::decay_t<decltype(arg)>;
+                        if constexpr (std::is_same_v<T, Xlib>) {
+                            vk::XlibSurfaceCreateInfoKHR info({}, arg.display, arg.window);
+                            return physical_device.CreateSurface(info);
+                        } 
+                        else if constexpr (std::is_same_v<T, Wayland>) {
+                            vk::WaylandSurfaceCreateInfoKHR info({}, arg.display, arg.surface);
+                            return physical_device.CreateSurface(info);
+                        } else {
+                            throw std::runtime_error("Invalid platform handle");
+                        }
+                    },
+                    handle.impl
+                );
 #elif defined(__ANDROID__)
-
+                vk::AndroidSurfaceCreateInfoKHR info({}, handle.impl);
+                return physical_device.CreateSurface(info);
 #endif // defined(_WIN32)
-	}
+            }()) {
 
-	vk::SurfaceKHR VulkanSurface::GetNative() const noexcept {
-		return *m_impl;
-	}
+    }
 
-}
+    std::pair<std::size_t, std::size_t> VulkanSurface::GetSize() const noexcept {
+        return ::fyuu_rhi::GetSize(m_handle);
+    }
+
+    PlatformHandle const &VulkanSurface::GetPlatformHandle() const noexcept {
+        return m_handle;
+    }
+
+    vk::SurfaceKHR VulkanSurface::GetNative() const noexcept {
+        return *m_impl;
+    }
+
+} // namespace fyuu_rhi::vulkan
+
+
+#endif // !defined(__APPLE__)
