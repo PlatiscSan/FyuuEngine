@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 project(plastic VERSION 1.0.0 LANGUAGES CXX)
 
-find_package(nameof CONFIG REQUIRED)
-
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -14,22 +12,25 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/disable_rtti.cmake)
 
 add_library(${PROJECT_NAME} STATIC)
 
-collect_cxx_modules(${CMAKE_CURRENT_SOURCE_DIR}/src/utility "utility" 
-    utility_modules 
+collect_cxx_modules(${CMAKE_CURRENT_SOURCE_DIR}/src/ds "data_structures" 
+    ds_modules 
 )
 
 collect_cxx_modules(${CMAKE_CURRENT_SOURCE_DIR}/src/concurrency "concurrency" 
     concurrency_modules 
 )
 
+
 target_sources(${PROJECT_NAME}
     PUBLIC FILE_SET CXX_MODULES FILES 
-        ${utility_modules}
+        ${ds_modules}
         ${concurrency_modules}
 )
 
-target_link_libraries(${PROJECT_NAME} 
-    PRIVATE 
-        nameof::nameof)
+target_include_directories(${PROJECT_NAME}
+    PUBLIC 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 
 disable_rtti(${PROJECT_NAME})

@@ -1,0 +1,44 @@
+#pragma once
+#include "api_macro.h"
+
+#if defined(__cplusplus)
+#include <cstdint>
+#else
+#include <stdint.h>
+#endif // defined(__cplusplus)
+
+#if defined(__cplusplus)
+extern "C" {
+#endif // defined(__cplusplus)
+
+	typedef struct Fyuu_Version {
+		uint8_t variant;
+		uint8_t major;
+		uint8_t minor;
+		uint8_t patch;
+	} Fyuu_Version;
+
+	typedef struct Fyuu_App {
+
+		char const* description;
+		char const* name;
+		char const* title;
+		
+		uint32_t surface_width;
+		uint32_t surface_height;
+
+		Fyuu_Version version;
+
+		void* user_data;
+
+		void(*Init)(Fyuu_App* self);
+		void(*Tick)(Fyuu_App* self);
+		void(*Shutdown)(Fyuu_App* self);
+
+	} Fyuu_App;
+
+	LIB_API int LIB_CALL Fyuu_Run(int argc, char** argv, Fyuu_App* app);
+
+#if defined(__cplusplus)
+}
+#endif // defined(__cplusplus)

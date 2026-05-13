@@ -3,14 +3,18 @@ project(VulkanHppModule)
 
 add_library(${PROJECT_NAME} STATIC)
 
+find_package(Vulkan REQUIRED)
+
 if(MSVC)
     target_compile_options(${PROJECT_NAME} 
         PRIVATE 
-            /GR-)
+            /GR-
+    )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(${PROJECT_NAME} 
         PRIVATE 
-            -fno-rtti)
+            -fno-rtti
+    )
 endif()
 
 target_sources(${PROJECT_NAME}  
@@ -31,7 +35,7 @@ target_link_libraries(${PROJECT_NAME}
 
 target_compile_definitions(${PROJECT_NAME} 
     PUBLIC
-        VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+        VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 )
 
 if(WIN32)

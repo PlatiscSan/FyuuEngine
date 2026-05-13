@@ -1,25 +1,24 @@
-#include <version>
-#if defined(__cpp_lib_modules)
-import std;
-#else
-#include <print>
-#endif // defined(__cpp_lib_modules)
-import fyuu_engine;
+#include "fyuu_application.h"
+#include "fyuu_log.h"
 
 int main(int argc, char** argv) {
-	try {
-		fyuu_engine::InitializeApplication(argc, argv);
-		return fyuu_engine::Run();
-	}
-	catch (fyuu_engine::application::ShowHelp const&) {
-		return 0;
-	}
-	catch (std::exception const& ex) {
-		std::println("{}", ex.what());
-		return -1;
-	}
-	catch(...) {
-		std::println("Unknown exception");
-		return -1;
-	}
+	Fyuu_App app = {
+		.description = "A simple application to test the engine.",
+		.name = "FyuuApp",
+		.title = "FyuuApp",
+		.surface_width = 800,
+		.surface_height = 600,
+		.version = { 0, 1, 0, 0 },
+		.user_data = nullptr,
+		.Init = [](Fyuu_App* self) {
+			FYUU_LOG_INFO("App initialized");
+		},
+		.Tick = [](Fyuu_App* self) {
+
+		},
+		.Shutdown = [](Fyuu_App* self) {
+
+		}
+	};
+	return Fyuu_Run(argc, argv, &app);
 }

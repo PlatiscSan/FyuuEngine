@@ -81,41 +81,6 @@ endif()
 # Enable position independent code for all targets
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Boost
-find_package(Boost REQUIRED COMPONENTS uuid)
-find_package(Boost REQUIRED COMPONENTS thread)
-
-if(Boost_FOUND)
-    add_definitions(-DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX)
-else()
-    message(FATAL_ERROR "Boost not found!")
-endif()
-
-# command line parser
-find_package(CLI11 CONFIG REQUIRED)
-
-# serialization
-find_package(yaml-cpp CONFIG REQUIRED)
-find_package(nlohmann_json CONFIG REQUIRED)
-
-# parallel programming
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(HWLOC REQUIRED IMPORTED_TARGET hwloc)
-find_package(TBB CONFIG REQUIRED)
-
-# log
-find_package(spdlog CONFIG REQUIRED)
-
-# Math
-find_package(Eigen3 REQUIRED)
-
-# graphics libraries
-find_package(SDL3 CONFIG REQUIRED)
-find_package(imgui CONFIG REQUIRED)
-
-# physics
-find_package(Jolt CONFIG REQUIRED)
-
 # Include subdirectories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -136,6 +101,7 @@ file(GLOB_RECURSE MODULE_INTERFACES
     "${CMAKE_SOURCE_DIR}/module/*.cppm"
     "${CMAKE_SOURCE_DIR}/module/*.ixx"
 )
+
 add_subdirectory(src)
 
 set(BUILD_TESTING ON)
