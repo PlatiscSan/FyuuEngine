@@ -1,7 +1,12 @@
 module;
 #include <version>
 #if !defined(__cpp_lib_modules)
+#include <algorithm>
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
+#include <variant>
+#include <vector>
 #endif // !defined(__cpp_lib_modules)
 #include <webgpu/webgpu_cpp.h>
 module fyuu_rhi:webgpu_logical_device;
@@ -9,8 +14,11 @@ module fyuu_rhi:webgpu_logical_device;
 import std;
 #endif // defined(__cpp_lib_modules)
 import :webgpu_traits;
-import :command_types;
 import :resource_types;
+import :pipeline_types;
+import :slang_pipeline_interface;
+import :slang;
+import :native_pipeline_binding;
 
 namespace {
 
@@ -226,6 +234,175 @@ namespace {
 		else return 1u;
 	}
 
+	wgpu::TextureViewDimension ExtractTextureViewDimension(ResourceFlags const& flags) {
+		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::TextureView1D, ResourceFlagBits::TextureView3D);
+		if (is_conflicting) {
+			throw std::invalid_argument("Only one tex view type can be set");
+		}
+		if (flags.Test(ResourceFlagBits::TextureView1D))
+			return wgpu::TextureViewDimension::e1D;
+		else if (flags.Test(ResourceFlagBits::TextureView2D))
+			return wgpu::TextureViewDimension::e2D;
+		else if (flags.Test(ResourceFlagBits::TextureView2DArray))
+			return wgpu::TextureViewDimension::e2DArray;
+		else if (flags.Test(ResourceFlagBits::TextureViewCube))
+			return wgpu::TextureViewDimension::Cube;
+		else if (flags.Test(ResourceFlagBits::TextureViewCubeArray))
+			return wgpu::TextureViewDimension::CubeArray;
+		else if (flags.Test(ResourceFlagBits::TextureView3D))
+			return wgpu::TextureViewDimension::e3D;
+		else
+			return wgpu::TextureViewDimension::e2D;
+	}
+
+	wgpu::TextureAspect ExtractTextureViewAspect(ResourceFlags const& flags) {
+		if (flags.Test(ResourceFlagBits::TextureViewAspectDepthOnly))
+			return wgpu::TextureAspect::DepthOnly;
+		if (flags.Test(ResourceFlagBits::TextureViewAspectStencilOnly))
+			return wgpu::TextureAspect::StencilOnly;
+		if (flags.Test(ResourceFlagBits::TextureViewAspectPlane0Only))
+			return wgpu::TextureAspect::Plane0Only;
+		if (flags.Test(ResourceFlagBits::TextureViewAspectPlane1Only))
+			return wgpu::TextureAspect::Plane1Only;
+		if (flags.Test(ResourceFlagBits::TextureViewAspectPlane2Only))
+			return wgpu::TextureAspect::Plane2Only;
+		return wgpu::TextureAspect::All;
+	}
+
+	wgpu::AddressMode MapAddressMode(AddressMode mode) noexcept {
+		switch (mode) {
+		case AddressMode::ClampToEdge:		return wgpu::AddressMode::ClampToEdge;
+		case AddressMode::Repeat:			return wgpu::AddressMode::Repeat;
+		case AddressMode::MirroredRepeat:	return wgpu::AddressMode::MirrorRepeat;
+		default:							return wgpu::AddressMode::ClampToEdge;
+		}
+	}
+
+	wgpu::FilterMode MapFilterMode(FilterMode mode) noexcept {
+		switch (mode) {
+		case FilterMode::Nearest:	return wgpu::FilterMode::Nearest;
+		case FilterMode::Linear:	return wgpu::FilterMode::Linear;
+		default:					return wgpu::FilterMode::Linear;
+		}
+	}
+
+	wgpu::MipmapFilterMode MapMipmapMode(MipmapFilterMode mode) noexcept {
+		switch (mode) {
+		case MipmapFilterMode::Nearest: return wgpu::MipmapFilterMode::Nearest;
+		case MipmapFilterMode::Linear:	return wgpu::MipmapFilterMode::Linear;
+		default:						return wgpu::MipmapFilterMode::Linear;
+		}
+	}
+
+	wgpu::CompareFunction MapCompare(CompareFunction func) noexcept {
+		switch (func) {
+		case CompareFunction::Never:		return wgpu::CompareFunction::Never;
+		case CompareFunction::Less:			return wgpu::CompareFunction::Less;
+		case CompareFunction::Equal:		return wgpu::CompareFunction::Equal;
+		case CompareFunction::LessEqual:	return wgpu::CompareFunction::LessEqual;
+		case CompareFunction::Greater:		return wgpu::CompareFunction::Greater;
+		case CompareFunction::NotEqual:		return wgpu::CompareFunction::NotEqual;
+		case CompareFunction::GreaterEqual: return wgpu::CompareFunction::GreaterEqual;
+		case CompareFunction::Always:		return wgpu::CompareFunction::Always;
+		default:							return wgpu::CompareFunction::Never;
+		}
+	}
+
+	wgpu::CompareFunction MapPipelineCompare(CompareOperation operation) noexcept {
+		switch (operation) {
+		case CompareOperation::Never: return wgpu::CompareFunction::Never;
+		case CompareOperation::Less: return wgpu::CompareFunction::Less;
+		case CompareOperation::Equal: return wgpu::CompareFunction::Equal;
+		case CompareOperation::LessEqual: return wgpu::CompareFunction::LessEqual;
+		case CompareOperation::Greater: return wgpu::CompareFunction::Greater;
+		case CompareOperation::NotEqual: return wgpu::CompareFunction::NotEqual;
+		case CompareOperation::GreaterEqual: return wgpu::CompareFunction::GreaterEqual;
+		case CompareOperation::Always: return wgpu::CompareFunction::Always;
+		default: return wgpu::CompareFunction::Always;
+		}
+	}
+
+	wgpu::StencilOperation MapStencilOperation(StencilOperation operation) noexcept {
+		switch (operation) {
+		case StencilOperation::Keep: return wgpu::StencilOperation::Keep;
+		case StencilOperation::Zero: return wgpu::StencilOperation::Zero;
+		case StencilOperation::Replace: return wgpu::StencilOperation::Replace;
+		case StencilOperation::Invert: return wgpu::StencilOperation::Invert;
+		case StencilOperation::IncrementClamp: return wgpu::StencilOperation::IncrementClamp;
+		case StencilOperation::DecrementClamp: return wgpu::StencilOperation::DecrementClamp;
+		case StencilOperation::IncrementWrap: return wgpu::StencilOperation::IncrementWrap;
+		case StencilOperation::DecrementWrap: return wgpu::StencilOperation::DecrementWrap;
+		default: return wgpu::StencilOperation::Keep;
+		}
+	}
+
+	wgpu::StencilFaceState MapStencilFace(StencilFaceState const& state) noexcept {
+		return {
+			.compare = MapPipelineCompare(state.compare),
+			.failOp = MapStencilOperation(state.fail_operation),
+			.depthFailOp = MapStencilOperation(state.depth_fail_operation),
+			.passOp = MapStencilOperation(state.pass_operation)
+		};
+	}
+
+	wgpu::BlendFactor MapBlendFactor(BlendFactor factor) noexcept {
+		switch (factor) {
+		case BlendFactor::Zero: return wgpu::BlendFactor::Zero;
+		case BlendFactor::One: return wgpu::BlendFactor::One;
+		case BlendFactor::SourceColor: return wgpu::BlendFactor::Src;
+		case BlendFactor::OneMinusSourceColor: return wgpu::BlendFactor::OneMinusSrc;
+		case BlendFactor::SourceAlpha: return wgpu::BlendFactor::SrcAlpha;
+		case BlendFactor::OneMinusSourceAlpha: return wgpu::BlendFactor::OneMinusSrcAlpha;
+		case BlendFactor::DestinationColor: return wgpu::BlendFactor::Dst;
+		case BlendFactor::OneMinusDestinationColor: return wgpu::BlendFactor::OneMinusDst;
+		case BlendFactor::DestinationAlpha: return wgpu::BlendFactor::DstAlpha;
+		case BlendFactor::OneMinusDestinationAlpha: return wgpu::BlendFactor::OneMinusDstAlpha;
+		case BlendFactor::SourceAlphaSaturated: return wgpu::BlendFactor::SrcAlphaSaturated;
+		case BlendFactor::Constant: return wgpu::BlendFactor::Constant;
+		case BlendFactor::OneMinusConstant: return wgpu::BlendFactor::OneMinusConstant;
+		default: return wgpu::BlendFactor::One;
+		}
+	}
+
+	wgpu::BlendOperation MapBlendOperation(BlendOperation operation) noexcept {
+		switch (operation) {
+		case BlendOperation::Add: return wgpu::BlendOperation::Add;
+		case BlendOperation::Subtract: return wgpu::BlendOperation::Subtract;
+		case BlendOperation::ReverseSubtract: return wgpu::BlendOperation::ReverseSubtract;
+		case BlendOperation::Min: return wgpu::BlendOperation::Min;
+		case BlendOperation::Max: return wgpu::BlendOperation::Max;
+		default: return wgpu::BlendOperation::Add;
+		}
+	}
+
+	wgpu::VertexFormat MapVertexFormat(ResourceFlagBits format) {
+		switch (format) {
+		case ResourceFlagBits::R8Uint: return wgpu::VertexFormat::Uint8;
+		case ResourceFlagBits::R8Sint: return wgpu::VertexFormat::Sint8;
+		case ResourceFlagBits::R8G8Uint: return wgpu::VertexFormat::Uint8x2;
+		case ResourceFlagBits::R8G8Sint: return wgpu::VertexFormat::Sint8x2;
+		case ResourceFlagBits::R8G8B8A8Unorm: return wgpu::VertexFormat::Unorm8x4;
+		case ResourceFlagBits::R8G8B8A8Snorm: return wgpu::VertexFormat::Snorm8x4;
+		case ResourceFlagBits::R8G8B8A8Uint: return wgpu::VertexFormat::Uint8x4;
+		case ResourceFlagBits::R8G8B8A8Sint: return wgpu::VertexFormat::Sint8x4;
+		case ResourceFlagBits::R16G16Uint: return wgpu::VertexFormat::Uint16x2;
+		case ResourceFlagBits::R16G16Sint: return wgpu::VertexFormat::Sint16x2;
+		case ResourceFlagBits::R16G16Float: return wgpu::VertexFormat::Float16x2;
+		case ResourceFlagBits::R16G16B16A16Uint: return wgpu::VertexFormat::Uint16x4;
+		case ResourceFlagBits::R16G16B16A16Sint: return wgpu::VertexFormat::Sint16x4;
+		case ResourceFlagBits::R16G16B16A16Float: return wgpu::VertexFormat::Float16x4;
+		case ResourceFlagBits::R32Uint: return wgpu::VertexFormat::Uint32;
+		case ResourceFlagBits::R32Sint: return wgpu::VertexFormat::Sint32;
+		case ResourceFlagBits::R32Float: return wgpu::VertexFormat::Float32;
+		case ResourceFlagBits::R32G32Uint: return wgpu::VertexFormat::Uint32x2;
+		case ResourceFlagBits::R32G32Sint: return wgpu::VertexFormat::Sint32x2;
+		case ResourceFlagBits::R32G32Float: return wgpu::VertexFormat::Float32x2;
+		case ResourceFlagBits::R32G32B32A32Uint: return wgpu::VertexFormat::Uint32x4;
+		case ResourceFlagBits::R32G32B32A32Sint: return wgpu::VertexFormat::Sint32x4;
+		case ResourceFlagBits::R32G32B32A32Float: return wgpu::VertexFormat::Float32x4;
+		default: throw std::invalid_argument("Unsupported WebGPU vertex format");
+		}
+	}
 }
 
 namespace fyuu_rhi::webgpu {
@@ -254,6 +431,245 @@ namespace fyuu_rhi::webgpu {
 			nullptr
 		};
 		return { ld.CreateTexture(&desc) };
+	}
+
+	Backend::View Backend::CreateTextureView(wgpu::Device const& ld, Backend::Resource const& res, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
+		
+		wgpu::Texture const& tex = std::get<wgpu::Texture>(res.impl);
+
+		wgpu::TextureViewDescriptor view_desc = {
+			.format = ExtractFormat(flags),
+			.dimension = ExtractTextureViewDimension(flags),
+			.baseMipLevel = static_cast<std::uint32_t>(base_mip_lvl),
+			.mipLevelCount = static_cast<std::uint32_t>(mip_lvl_cnt),
+			.baseArrayLayer = static_cast<std::uint32_t>(base_arr_layer),
+			.arrayLayerCount = static_cast<std::uint32_t>(arr_layer_cnt),
+			.aspect = ExtractTextureViewAspect(flags)
+		};
+	
+		return { tex.CreateView(&view_desc) };
+
+	}
+
+	Backend::View Backend::CreateBufferView(wgpu::Device const& ld, Backend::Resource const& buf, std::size_t offset, std::size_t range, ResourceFlags const& flags) {
+		return { Backend::View::BufferView{ std::get<wgpu::Buffer>(buf.impl), offset, range } };
+	}
+
+	wgpu::Sampler Backend::CreateSampler(wgpu::Device const& ld, SamplerDescriptor const& desc) {
+		wgpu::SamplerDescriptor wgpu_desc = {
+			.addressModeU = MapAddressMode(desc.address_mode_u),
+			.addressModeV = MapAddressMode(desc.address_mode_v),
+			.addressModeW = MapAddressMode(desc.address_mode_w),
+			.magFilter = MapFilterMode(desc.mag_filter),
+			.minFilter = MapFilterMode(desc.min_filter),
+			.mipmapFilter = MapMipmapMode(desc.mipmap_filter),
+			.lodMinClamp = desc.min_lod,
+			.lodMaxClamp = desc.max_lod,
+			.compare = MapCompare(desc.compare_function),
+			.maxAnisotropy = desc.max_anisotropy,
+		};
+		return ld.CreateSampler(&wgpu_desc);
+	}
+
+	Backend::Pipeline Backend::CreateGraphicsPipeline(
+		wgpu::Device const& ld,
+		GraphicsPipelineDescriptor const& descriptor
+	) {
+		if (!descriptor.program.entry_points.empty()) {
+			for (auto const& entry : descriptor.program.entry_points) {
+				if (entry.stage != PipelineStage::Vertex && entry.stage != PipelineStage::Fragment) {
+					throw std::invalid_argument("WebGPU graphics pipelines support only vertex and fragment stages");
+				}
+			}
+		}
+		slang::TargetDesc target{ .format = SLANG_WGSL };
+		shader::SlangProgram program(target, descriptor.program, "webgpu-wgsl");
+		if (!program.Interface().push_constants.empty()) {
+			throw std::invalid_argument("WebGPU does not support push constants");
+		}
+
+		std::vector<wgpu::ShaderModule> modules;
+		modules.reserve(program.EntryPoints().size());
+		wgpu::ShaderModule vertex_module;
+		wgpu::ShaderModule fragment_module;
+		wgpu::StringView vertex_entry;
+		wgpu::StringView fragment_entry;
+		for (auto const& entry : program.EntryPoints()) {
+			wgpu::ShaderSourceWGSL source;
+			source.code = {
+				reinterpret_cast<char const*>(entry.code.data()),
+				entry.code.size()
+			};
+			wgpu::ShaderModuleDescriptor module_descriptor{
+				.nextInChain = &source
+			};
+			auto module = ld.CreateShaderModule(&module_descriptor);
+			modules.push_back(module);
+			if (entry.stage == PipelineStage::Vertex) {
+				vertex_module = module;
+				vertex_entry = { entry.name.data(), entry.name.size() };
+			}
+			else {
+				fragment_module = module;
+				fragment_entry = { entry.name.data(), entry.name.size() };
+			}
+		}
+		if (!vertex_module) {
+			throw std::invalid_argument("WebGPU graphics pipeline has no vertex entry point");
+		}
+
+		std::vector<std::vector<wgpu::VertexAttribute>> attributes(descriptor.vertex.buffers.size());
+		std::vector<wgpu::VertexBufferLayout> buffers;
+		buffers.reserve(descriptor.vertex.buffers.size());
+		for (std::size_t index = 0; index < descriptor.vertex.buffers.size(); ++index) {
+			auto const& buffer = descriptor.vertex.buffers[index];
+			for (auto const& attribute : descriptor.vertex.attributes) {
+				if (attribute.slot == buffer.slot) {
+					attributes[index].push_back(
+						{
+							.format = MapVertexFormat(attribute.format),
+							.offset = attribute.offset,
+							.shaderLocation = attribute.location
+						}
+					);
+				}
+			}
+			buffers.push_back(
+				{
+					.stepMode = buffer.input_rate == VertexInputRate::Vertex
+						? wgpu::VertexStepMode::Vertex
+						: wgpu::VertexStepMode::Instance,
+					.arrayStride = buffer.stride,
+					.attributeCount = attributes[index].size(),
+					.attributes = attributes[index].data()
+				}
+			);
+		}
+
+		wgpu::VertexState vertex{
+			.module = vertex_module,
+			.entryPoint = vertex_entry,
+			.bufferCount = buffers.size(),
+			.buffers = buffers.data()
+		};
+		wgpu::PrimitiveState primitive{
+			.topology =
+				descriptor.primitive.topology == PrimitiveTopology::PointList ? wgpu::PrimitiveTopology::PointList :
+				descriptor.primitive.topology == PrimitiveTopology::LineList ? wgpu::PrimitiveTopology::LineList :
+				descriptor.primitive.topology == PrimitiveTopology::LineStrip ? wgpu::PrimitiveTopology::LineStrip :
+				descriptor.primitive.topology == PrimitiveTopology::TriangleStrip ? wgpu::PrimitiveTopology::TriangleStrip :
+				wgpu::PrimitiveTopology::TriangleList,
+			.stripIndexFormat = !descriptor.primitive.strip_index_format
+				? wgpu::IndexFormat::Undefined
+				: *descriptor.primitive.strip_index_format == IndexFormat::Uint16
+					? wgpu::IndexFormat::Uint16
+					: wgpu::IndexFormat::Uint32,
+			.frontFace = descriptor.rasterization.front_face == FrontFace::CounterClockwise
+				? wgpu::FrontFace::CCW
+				: wgpu::FrontFace::CW,
+			.cullMode =
+				descriptor.rasterization.cull_mode == CullMode::Front ? wgpu::CullMode::Front :
+				descriptor.rasterization.cull_mode == CullMode::Back ? wgpu::CullMode::Back :
+				wgpu::CullMode::None
+		};
+
+		std::optional<wgpu::DepthStencilState> depth_stencil;
+		if (descriptor.depth_stencil) {
+			auto const& state = *descriptor.depth_stencil;
+			depth_stencil = {
+				.format = ExtractFormat(ResourceFlags(state.format)),
+				.depthWriteEnabled = state.depth_write_enabled
+					? wgpu::OptionalBool::True
+					: wgpu::OptionalBool::False,
+				.depthCompare = state.depth_test_enabled
+					? MapPipelineCompare(state.depth_compare)
+					: wgpu::CompareFunction::Always,
+				.stencilFront = MapStencilFace(state.stencil_front),
+				.stencilBack = MapStencilFace(state.stencil_back),
+				.stencilReadMask = state.stencil_read_mask,
+				.stencilWriteMask = state.stencil_write_mask,
+				.depthBias = descriptor.rasterization.depth_bias.constant,
+				.depthBiasSlopeScale = descriptor.rasterization.depth_bias.slope_scale,
+				.depthBiasClamp = descriptor.rasterization.depth_bias.clamp
+			};
+		}
+
+		std::vector<wgpu::BlendState> blends;
+		std::vector<wgpu::ColorTargetState> color_targets;
+		blends.reserve(descriptor.color_targets.size());
+		color_targets.reserve(descriptor.color_targets.size());
+		for (auto const& target_state : descriptor.color_targets) {
+			wgpu::BlendState* blend = nullptr;
+			if (target_state.blend) {
+				auto const& state = *target_state.blend;
+				blends.push_back(
+					{
+						.color = {
+							.operation = MapBlendOperation(state.color.operation),
+							.srcFactor = MapBlendFactor(state.color.source_factor),
+							.dstFactor = MapBlendFactor(state.color.destination_factor)
+						},
+						.alpha = {
+							.operation = MapBlendOperation(state.alpha.operation),
+							.srcFactor = MapBlendFactor(state.alpha.source_factor),
+							.dstFactor = MapBlendFactor(state.alpha.destination_factor)
+						}
+					}
+				);
+				blend = &blends.back();
+			}
+			color_targets.push_back(
+				{
+					.format = ExtractFormat(ResourceFlags(target_state.format)),
+					.blend = blend,
+					.writeMask = static_cast<wgpu::ColorWriteMask>(static_cast<std::uint8_t>(target_state.write_mask))
+				}
+			);
+		}
+		std::optional<wgpu::FragmentState> fragment;
+		if (fragment_module) {
+			fragment = {
+				.module = fragment_module,
+				.entryPoint = fragment_entry,
+				.targetCount = color_targets.size(),
+				.targets = color_targets.data()
+			};
+		}
+		wgpu::RenderPipelineDescriptor pipeline_descriptor{
+			.layout = nullptr,
+			.vertex = vertex,
+			.primitive = primitive,
+			.depthStencil = depth_stencil ? &*depth_stencil : nullptr,
+			.multisample = {
+				.count = ExtractSampleCount(ResourceFlags(descriptor.multisample.sample_count)),
+				.mask = descriptor.multisample.mask,
+				.alphaToCoverageEnabled = descriptor.multisample.alpha_to_coverage_enabled
+			},
+			.fragment = fragment ? &*fragment : nullptr
+		};
+
+		Backend::Pipeline pipeline;
+		pipeline.bindings = MakePipelineBindingMetadata(program.Interface());
+		pipeline.state = ld.CreateRenderPipeline(&pipeline_descriptor);
+		std::uint32_t bind_group_count = 0;
+		for (auto const& binding : program.Interface().bindings) {
+			bind_group_count = std::max(bind_group_count, binding.space + 1);
+		}
+		pipeline.bind_group_layouts.reserve(bind_group_count);
+		for (std::uint32_t index = 0; index < bind_group_count; ++index) {
+			pipeline.bind_group_layouts.push_back(pipeline.state.GetBindGroupLayout(index));
+		}
+		return pipeline;
+	}
+
+	Backend::PipelineResourceGroup Backend::CreatePipelineResourceGroup(
+		wgpu::Device const& ld,
+		Backend::Pipeline const& pipeline,
+		std::uint32_t space,
+		std::span<NativePipelineResourceBinding<Backend> const> bindings
+	) {
+		(void)ld;
+		return MakePipelineResourceGroup<Backend>(pipeline.bindings, space, bindings);
 	}
 
 }

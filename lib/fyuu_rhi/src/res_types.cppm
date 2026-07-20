@@ -11,7 +11,7 @@ import std;
 import plastic.atomic_flags;
 namespace fyuu_rhi {
 
-	export enum class ResourceFlagBits : std::uint64_t {
+	export enum class ResourceFlagBits : std::uint32_t {
 		CopySRC,
 		CopyDST,
 		
@@ -24,6 +24,7 @@ namespace fyuu_rhi {
 		IndirectBuffer,
 
 		TextureBinding,
+		SamplerBinding,
 		StorageBinding,
 		RenderAttachment,
 		TransientAttachment,

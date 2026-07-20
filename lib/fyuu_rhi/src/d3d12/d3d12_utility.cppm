@@ -6,6 +6,7 @@ module;
 #include <type_traits>
 #include <memory>
 #include <vector>
+#include <memory_resource>
 #endif // !defined(__cpp_lib_modules)
 #if defined(_WIN32)
 #include <Windows.h>
@@ -15,13 +16,24 @@ module;
 #endif // defined(_WIN32)
 #define BOOST_DISABLE_ASSERTS
 #include <boost/locale.hpp>
-#include <boost/scope/unique_resource.hpp>
 export module fyuu_rhi:d3d12_utility;
 #if defined(_WIN32)
 #if defined(__cpp_lib_modules)
 import std;
 #endif // defined(__cpp_lib_modules)
+
+namespace {
+	thread_local std::vector<wil::unique_event> s_events;
+}
+
 namespace fyuu_rhi::d3d12 {
+
+	export struct ManagedEvent {
+		wil::unique_event impl;
+		~ManagedEvent() noexcept {
+			s_events.emplace_back(std::move(impl));
+		}
+	};
 
 	export void ThrowIfFailed(HRESULT result) {
 
@@ -37,26 +49,29 @@ namespace fyuu_rhi::d3d12 {
 		
 	}
 
-	export using UniqueEvent = boost::scope::unique_resource<wil::unique_event, void(*)(wil::unique_event&)>;
 
-	export using UniqueWait = wil::unique_any<HANDLE, decltype(&::UnregisterWait), ::UnregisterWait>;
+	export std::shared_ptr<ManagedEvent> CreateManagedEvent() {
 
-	export UniqueEvent CreateEventUnique() {
+		constexpr std::size_t BUFFER_SIZE = 1024 * 1024; // 1 MB
+		static std::array<std::byte, BUFFER_SIZE> buffer;
+		static std::pmr::monotonic_buffer_resource s_buffer_resource(
+			buffer.data(), buffer.size(),
+			std::pmr::null_memory_resource()
+		);
+		static std::pmr::synchronized_pool_resource pool(&s_buffer_resource);
 
-		static thread_local std::vector<wil::unique_event> events;
-		static auto GC = [](wil::unique_event& event) {
-			events.emplace_back(std::move(event));
-			};
+		std::pmr::polymorphic_allocator<ManagedEvent> alloc(&pool);
 
-		if (events.empty()) {
-			return UniqueEvent(wil::unique_event(wil::EventOptions::None), GC);
+		if (s_events.empty()) {
+			return std::allocate_shared<ManagedEvent>(alloc, wil::unique_event(wil::EventOptions::None));
 		}
 
-		wil::unique_event event = std::move(events.back());
-		events.pop_back();
+		wil::unique_event event = std::move(s_events.back());
+		s_events.pop_back();
 		event.ResetEvent();
 
-		return UniqueEvent(std::move(event), GC);
+		return std::allocate_shared<ManagedEvent>(alloc, std::move(event));
+
 	}
 
 }

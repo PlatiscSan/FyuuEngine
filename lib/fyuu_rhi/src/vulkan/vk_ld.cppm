@@ -4,18 +4,39 @@ module;
 #include <type_traits>
 #include <stdexcept>
 #include <utility>
+#include <memory>
 #include <array>
 #include <unordered_map>
+#include <fstream>
 #include <deque>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <mutex>
 #include <memory_resource>
+#include <filesystem>
+#include <variant>
+#include <optional>
+#include <span>
 #include <format>
 #include <concepts>
+#include <compare>
+#include <source_location>
 #endif // !defined(__cpp_lib_modules)
 #if !defined(__APPLE__)
 #include <vma/vk_mem_alloc.h>
 #endif //!defined(__APPLE__)
-#include <tbb/concurrent_lru_cache.h>
 #include <boost/scope/unique_resource.hpp>
+#include <boost/scope/defer.hpp>
+
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/SPIRV/GlslangToSpv.h>
+#include <glslang/Include/ResourceLimits.h>
+
+#include <spirv_cross.hpp>
+#include <spirv_glsl.hpp>
+
+#include "log.hpp"
 module fyuu_rhi:vulkan_logical_device;
 #if !defined(__APPLE__)
 #if defined(__cpp_lib_modules)
@@ -25,83 +46,45 @@ import vulkan;
 import :vulkan_traits;
 import :core_types;
 import :vulkan_queue_allocator;
-import :command_types;
-import :vulkan_texture_tracker;
+import :log;
+import :sampler_types;
+import :pipeline_types;
+import :slang_pipeline_interface;
+import :slang;
+import :cache_system;
+import :native_pipeline_binding;
+import plastic.lru;
+import plastic.static_list;
+import plastic.static_hash_table;
+
+namespace fs = std::filesystem;
 
 namespace {
 
 	using namespace fyuu_rhi;
 	using namespace fyuu_rhi::vulkan;
 
-	Backend::UniqueBinarySemaphore CreateBinarySemaphore(Backend::LogicalDevice const& ld) {
-		
-		static thread_local std::unordered_map<vk::Device, std::deque<vk::SharedSemaphore>> bin_sems;
+	std::pmr::synchronized_pool_resource s_pool{};
 
-		std::deque<vk::SharedSemaphore>& free_sems = bin_sems[*ld.impl];
-
-		static auto GC = [](vk::SharedSemaphore& sem) {
-			vk::SharedDevice owner = sem.getDestructorType();
-			std::deque<vk::SharedSemaphore>& free_sems = bin_sems[*owner];
-			free_sems.emplace_back(std::move(sem));
-			};
-
-
-		if (free_sems.empty()) {
-			vk::SemaphoreTypeCreateInfo sem_type_info(
-				vk::SemaphoreType::eBinary,
-				0ull	// initial value
-			);
-			vk::SemaphoreCreateInfo sem_info(
-				vk::SemaphoreCreateFlags{},
-				&sem_type_info
-			);
-			vk::SharedSemaphore sem(
-				ld.impl->createSemaphore(sem_info, nullptr, *ld.dispatcher),
-				ld.impl,
-				{ nullptr, *ld.dispatcher }
-			);
-
-			return { std::move(sem), GC };
-
+	struct GetTextureHandle {
+		vk::Image operator()(std::shared_ptr<Backend::Resource::Texture> const& resource) const {
+			return resource->vk_handle;
 		}
-
-		vk::SharedSemaphore sem = std::move(free_sems.front());
-		free_sems.pop_front();
-
-		return { std::move(sem), GC };
-
-	}
-
-	Backend::UniqueFence CreateFence(Backend::LogicalDevice const& ld) {
-
-		static thread_local std::unordered_map<vk::Device, std::deque<vk::SharedFence>> fences;
-
-		std::deque<vk::SharedFence>& free_fences = fences[*ld.impl];
-
-		static auto GC = [](vk::SharedFence& fence) {
-			vk::SharedDevice owner = fence.getDestructorType();
-			std::deque<vk::SharedFence>& free_fences = fences[*owner];
-			free_fences.emplace_back(std::move(fence));
-			};
-
-
-		if (free_fences.empty()) {
-			vk::SharedFence fence(
-				ld.impl->createFence({}, nullptr, *ld.dispatcher),
-				ld.impl,
-				{ nullptr, *ld.dispatcher }
-			);
-
-			return { std::move(fence), GC };
-
+		template <class T>
+		vk::Image operator()(T const&) const {
+			throw std::invalid_argument("Not a valid texture");
 		}
+	};
 
-		vk::SharedFence fence = std::move(free_fences.front());
-		free_fences.pop_front();
-
-		return { std::move(fence), GC };
-
-	}
+	struct GetBufferHandle {
+		vk::Buffer operator()(std::shared_ptr<Backend::Resource::Buffer> const& resource) const {
+			return resource->vk_handle;
+		}
+		template <class T>
+		vk::Buffer operator()(T const&) const {
+			throw std::invalid_argument("Not a valid buffer");
+		}
+	};
 
 	VmaAllocationCreateFlags ExtractAllocationFlags(ResourceFlags const& flags) {
 		
@@ -109,7 +92,7 @@ namespace {
 		
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::UndedicatedAllocation, ResourceFlagBits::DedicatedAllocation);
 		if (is_conflicting) {
-			throw std::invalid_argument("UndedicatedAllocation and DedicatedAllocation are set simultaneously");
+			throw std::invalid_argument("ExtractAllocationFlags(): UndedicatedAllocation and DedicatedAllocation are set simultaneously");
 		}
 		if (flags.Test(ResourceFlagBits::UndedicatedAllocation)) {
 			vma_flags |= VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_NEVER_ALLOCATE_BIT;
@@ -133,7 +116,7 @@ namespace {
 
 		is_conflicting = flags.TestSingleInRange(ResourceFlagBits::MinOffsetAllocation, ResourceFlagBits::FirstFitAllocation);
 		if (is_conflicting) {
-			throw std::invalid_argument("MinOffsetAllocation BestFitAllocation or FirstFitAllocation are set simultaneously");
+			throw std::invalid_argument("ExtractAllocationFlags(): MinOffsetAllocation BestFitAllocation or FirstFitAllocation are set simultaneously");
 		}
 		else if (flags.Test(ResourceFlagBits::MinOffsetAllocation)) {
 			vma_flags |= VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_STRATEGY_MIN_OFFSET_BIT;
@@ -148,11 +131,18 @@ namespace {
 
 		}
 
+		is_conflicting = flags.TestSingleInRange(ResourceFlagBits::DeviceLocal, ResourceFlagBits::DeviceReadback);
+		if (is_conflicting) {
+			throw std::invalid_argument("ExtractAllocationFlags(): DeviceLocal HostVisible or DeviceReadback are set simultaneously");
+		}
 		if (flags.Test(ResourceFlagBits::HostVisible)) {
 			vma_flags |= VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 		}
-		if (flags.Test(ResourceFlagBits::DeviceReadback)) {
+		else if (flags.Test(ResourceFlagBits::DeviceReadback)) {
 			vma_flags |= VmaAllocationCreateFlagBits::VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+		}
+		else {
+
 		}
 
 		return vma_flags;
@@ -162,7 +152,7 @@ namespace {
 	VmaMemoryUsage ExtractMemoryUsage(ResourceFlags const& flags) {
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::DeviceLocal, ResourceFlagBits::DeviceReadback);
 		if (is_conflicting) {
-			throw std::invalid_argument("DeviceLocal HostVisible or DeviceReadback are set simultaneously");
+			throw std::invalid_argument("ExtractMemoryUsage(): DeviceLocal HostVisible or DeviceReadback are set simultaneously");
 		}
 		if (flags.Test(ResourceFlagBits::DeviceLocal)) {
 			return VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -213,7 +203,7 @@ namespace {
 	vk::ImageType ExtractTextureDimension(ResourceFlags const& flags) {
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::Texture1D, ResourceFlagBits::Texture3D);
 		if (is_conflicting) {
-			throw std::invalid_argument("Texture1D Texture2D or Texture3D are set simultaneously");
+			throw std::invalid_argument("ExtractTextureDimension(): Texture1D Texture2D or Texture3D are set simultaneously");
 		}
 		if (flags.Test(ResourceFlagBits::Texture1D)) {
 			return vk::ImageType::e1D;
@@ -233,7 +223,7 @@ namespace {
 
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::R8Unorm, ResourceFlagBits::Bc7UnormSrgb);
 		if (is_conflicting) {
-			throw std::invalid_argument("Only one format can be set");
+			throw std::invalid_argument("ExtractFormat(): Only one format can be set");
 		}
 
 		if (flags.Test(ResourceFlagBits::R8Unorm)) return vk::Format::eR8Unorm;
@@ -318,7 +308,7 @@ namespace {
 	vk::SampleCountFlagBits ExtractSampleCount(ResourceFlags const& flags) {
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::Sample1, ResourceFlagBits::Sample64);
 		if (is_conflicting) {
-			throw std::invalid_argument("Only sample count can be set");
+			throw std::invalid_argument("ExtractSampleCount(): Only sample count can be set");
 		}
 		if (flags.Test(ResourceFlagBits::Sample1)) {
 			return vk::SampleCountFlagBits::e1;
@@ -350,7 +340,7 @@ namespace {
 	vk::ImageTiling ExtractTiling(ResourceFlags const& flags) {
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::DeviceLocal, ResourceFlagBits::DeviceReadback);
 		if (is_conflicting) {
-			throw std::invalid_argument("DeviceLocal HostVisible or DeviceReadback are set simultaneously");
+			throw std::invalid_argument("ExtractTiling(): DeviceLocal HostVisible or DeviceReadback are set simultaneously");
 		}
 		if (flags.Test(ResourceFlagBits::DeviceLocal)) {
 			return vk::ImageTiling::eOptimal;
@@ -383,7 +373,18 @@ namespace {
 			usage |= vk::ImageUsageFlagBits::eStorage;
 		}
 		if (flags.Test(ResourceFlagBits::RenderAttachment)) {
-			usage |= vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eDepthStencilAttachment;
+			switch (ExtractFormat(flags)) {
+			case vk::Format::eD16Unorm:
+			case vk::Format::eD32Sfloat:
+			case vk::Format::eS8Uint:
+			case vk::Format::eD24UnormS8Uint:
+			case vk::Format::eD32SfloatS8Uint:
+				usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+				break;
+			default:
+				usage |= vk::ImageUsageFlagBits::eColorAttachment;
+				break;
+			}
 		}
 		if (flags.Test(ResourceFlagBits::TransientAttachment)) {
 			usage |= vk::ImageUsageFlagBits::eTransientAttachment;
@@ -399,7 +400,7 @@ namespace {
 	vk::ImageViewType ExtractTextureViewType(ResourceFlags const& flags) {
 		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::TextureView1D, ResourceFlagBits::TextureView3D);
 		if (is_conflicting) {
-			throw std::invalid_argument("Only one texture view type can be set");
+			throw std::invalid_argument("ExtractTextureViewType(): Only one texture view type can be set");
 		}
 		if (flags.Test(ResourceFlagBits::TextureView1D)) {
 			return vk::ImageViewType::e1D;
@@ -424,58 +425,350 @@ namespace {
 		}
 	}
 
-	vk::ImageAspectFlags ExtractTextureAspect(Backend::Resource const& res, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
+	std::uint32_t GetMultiPlaneCount(Backend::LogicalDevice const& ld, vk::Format format) {
 
+		struct CacheKey {
+			vk::Device device;
+			vk::Format format;
+			std::strong_ordering operator<=>(CacheKey const& other) const noexcept = default;
+		};
 
+		struct CacheKeyHash {
+			std::size_t operator()(CacheKey const& key) const noexcept {
+				return std::hash<vk::Device>{}(key.device) ^ (std::hash<vk::Format>{}(key.format) << 1);
+			}
+		};
+
+		using List = plastic::ds::StaticList<std::pair<CacheKey const, std::uint32_t>, 64u>;
+
+		static plastic::ds::LRUCache<
+			plastic::ds::StaticHashTable<CacheKey, typename List::iterator, 64u, CacheKeyHash>,
+			List,
+			64u
+		> cache;
+
+		static std::mutex mutex;
+
+		CacheKey key{ *ld.impl, format };
+
+		if (std::unique_lock<std::mutex> lock(mutex); cache.Contains(key)) {
+			return cache.Get(key);
+		}
+
+		try {
+			vk::FormatProperties2 fmt_props = ld.phys_dev.impl->getFormatProperties2(format, *ld.dispatcher);
+			bool disjoint_supported = (fmt_props.formatProperties.optimalTilingFeatures &
+				vk::FormatFeatureFlagBits::eDisjoint) != vk::FormatFeatureFlags{};
+			if (!disjoint_supported) {
+				{
+					std::unique_lock<std::mutex> lock(mutex);
+					cache.Put(key, 0u);
+				}
+				return 0u;
+			}
+		}
+		catch (std::exception const& ex) {
+			LOG_WARNING(
+				std::format("GetMultiPlaneCount(): Calling getFormatProperties2() but failed, Vulkan reports {}", ex.what())
+			);
+			return 0u;
+		}
+
+		try {
+			std::uint32_t plane_count = 0;
+			std::array planes = {
+				vk::ImageAspectFlagBits::ePlane0,
+				vk::ImageAspectFlagBits::ePlane1,
+				vk::ImageAspectFlagBits::ePlane2
+			};
+			vk::Result res;
+			for (auto plane : planes) {
+				vk::ImagePlaneMemoryRequirementsInfo plane_info(plane);
+				vk::ImageFormatProperties2 img_props({}, &plane_info);
+				vk::PhysicalDeviceImageFormatInfo2 fmt_info(
+					format,
+					vk::ImageType::e2D,
+					vk::ImageTiling::eOptimal,
+					vk::ImageUsageFlagBits::eSampled,
+					vk::ImageCreateFlagBits::eDisjoint,
+					nullptr
+				);
+				res = ld.phys_dev.impl->getImageFormatProperties2(&fmt_info, &img_props, *ld.dispatcher);
+				plane_count += res == vk::Result::eSuccess;
+			}
+			{
+				std::unique_lock<std::mutex> lock(mutex);
+				cache.Put(key, plane_count);
+			}
+			return plane_count;
+		}
+		catch (std::exception const& ex) {
+			LOG_WARNING(std::format("GetMultiPlaneCount(): Calling getImageFormatProperties2() but failed, Vulkan reports {}", ex.what()));
+			return 0u;
+		}
 
 	}
+
+	vk::ImageAspectFlags ExtractTextureAspect(std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags, Backend::LogicalDevice const& ld) {
+
+		vk::Format format = ExtractFormat(flags);
+
+		bool plane0 = flags.Test(ResourceFlagBits::TextureViewAspectPlane0Only);
+		bool plane1 = flags.Test(ResourceFlagBits::TextureViewAspectPlane1Only);
+		bool plane2 = flags.Test(ResourceFlagBits::TextureViewAspectPlane2Only);
+		std::optional<std::uint32_t> requested_plane;
+		if (plane0) {
+			requested_plane = 0u;
+		}
+		else if (plane1) {
+			requested_plane = 1u;
+		}
+		else if (plane2) {
+			requested_plane = 2u;
+		}
+		else {
+
+		}
+
+		if (requested_plane) {
+			std::uint32_t plane_count = GetMultiPlaneCount(ld, format);
+			if (plane_count < 2) {
+				throw std::invalid_argument("ExtractTextureAspect(): TextureViewAspectPlaneXOnly used on non-multiplanar format");
+			}
+			if (*requested_plane >= plane_count) {
+				throw std::invalid_argument("ExtractTextureAspect(): Requested plane index out of range for this format");
+			}
+			switch (*requested_plane) {
+			case 0: 
+				return vk::ImageAspectFlagBits::ePlane0;
+			case 1: 
+				return vk::ImageAspectFlagBits::ePlane1;
+			case 2: 
+				return vk::ImageAspectFlagBits::ePlane2;
+			default: 
+				std::unreachable();
+			}
+		}
+
+		bool is_depth = format == vk::Format::eD16Unorm ||
+			format == vk::Format::eD24UnormS8Uint ||
+			format == vk::Format::eD32Sfloat;
+
+		bool is_stencil = format == vk::Format::eS8Uint ||
+			format == vk::Format::eD24UnormS8Uint ||
+			format == vk::Format::eD32SfloatS8Uint;
+
+		if (!is_depth && !is_stencil) {
+			return vk::ImageAspectFlagBits::eColor;
+		}
+
+		if (flags.Test(ResourceFlagBits::TextureViewAspectDepthOnly)) {
+			return vk::ImageAspectFlagBits::eDepth;
+		}
+		if (flags.Test(ResourceFlagBits::TextureViewAspectStencilOnly)) {
+			return vk::ImageAspectFlagBits::eStencil;
+		}
+
+		vk::ImageAspectFlags aspect;
+		if (is_depth) {
+			aspect |= vk::ImageAspectFlagBits::eDepth;
+		}
+		if (is_stencil) {
+			aspect |= vk::ImageAspectFlagBits::eStencil;
+		}
+
+		return aspect;
+
+	}
+
+	vk::SamplerMipmapMode MapMipmapMode(MipmapFilterMode mode) noexcept {
+		switch (mode) {
+		case MipmapFilterMode::Nearest: return vk::SamplerMipmapMode::eNearest;
+		case MipmapFilterMode::Linear:	return vk::SamplerMipmapMode::eLinear;
+		default:						return vk::SamplerMipmapMode::eLinear;
+		}
+	}
+
+	vk::Filter MapFilterMode(FilterMode mode) noexcept {
+		switch (mode) {
+		case FilterMode::Nearest:	return vk::Filter::eNearest;
+		case FilterMode::Linear:	return vk::Filter::eLinear;
+		default:					return vk::Filter::eLinear;
+		}
+	}
+
+	vk::SamplerAddressMode MapAddressMode(AddressMode mode) noexcept {
+		switch (mode) {
+		case AddressMode::Repeat:			return vk::SamplerAddressMode::eRepeat;
+		case AddressMode::MirroredRepeat:	return vk::SamplerAddressMode::eMirroredRepeat;
+		case AddressMode::ClampToEdge:		return vk::SamplerAddressMode::eClampToEdge;
+		default:							return vk::SamplerAddressMode::eClampToEdge;
+		}
+	}
+
+	vk::CompareOp MapCompareOp(CompareFunction op) noexcept {
+		switch (op) {
+		case CompareFunction::Never:		return vk::CompareOp::eNever;
+		case CompareFunction::Less:			return vk::CompareOp::eLess;
+		case CompareFunction::Equal:		return vk::CompareOp::eEqual;
+		case CompareFunction::LessEqual:	return vk::CompareOp::eLessOrEqual;
+		case CompareFunction::Greater:		return vk::CompareOp::eGreater;
+		case CompareFunction::NotEqual:		return vk::CompareOp::eNotEqual;
+		case CompareFunction::GreaterEqual: return vk::CompareOp::eGreaterOrEqual;
+		case CompareFunction::Always:		return vk::CompareOp::eAlways;
+		default:							return vk::CompareOp::eNever;
+		}
+	}
+
+	inline int Uint32VersionToShorthand(uint32_t ver) {
+		uint32_t major = vk::apiVersionMajor(ver);
+		uint32_t minor = vk::apiVersionMinor(ver);
+		return major * 100 + minor;
+	}
+
+	std::string_view SelectSPIRVProfile(std::uint32_t vulkan_api_version) {
+		if (vulkan_api_version >= vk::ApiVersion13) {
+			return "spirv_1_6";
+		}
+		if (vulkan_api_version >= vk::ApiVersion12) {
+			return "spirv_1_5";
+		}
+		if (vulkan_api_version >= vk::ApiVersion11) {
+			return "spirv_1_3";
+		}
+		return "spirv_1_0";
+	}
+
+	vk::ShaderStageFlags MapPipelineStageFlags(std::uint32_t visibility) {
+		vk::ShaderStageFlags result;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::Vertex))) result |= vk::ShaderStageFlagBits::eVertex;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::Fragment))) result |= vk::ShaderStageFlagBits::eFragment;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::TessellationControl))) result |= vk::ShaderStageFlagBits::eTessellationControl;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::TessellationEvaluation))) result |= vk::ShaderStageFlagBits::eTessellationEvaluation;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::Geometry))) result |= vk::ShaderStageFlagBits::eGeometry;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::Task))) result |= vk::ShaderStageFlagBits::eTaskEXT;
+		if (visibility & (1u << static_cast<std::uint32_t>(PipelineStage::Mesh))) result |= vk::ShaderStageFlagBits::eMeshEXT;
+		return result;
+	}
+
+	vk::DescriptorType MapPipelineDescriptorType(SlangPipelineBinding const& binding) {
+		if (binding.flags.Test(ResourceFlagBits::SamplerBinding)) {
+			return binding.flags.Test(ResourceFlagBits::TextureBinding)
+				? vk::DescriptorType::eCombinedImageSampler
+				: vk::DescriptorType::eSampler;
+		}
+		if (binding.flags.Test(ResourceFlagBits::UniformBuffer)) return vk::DescriptorType::eUniformBuffer;
+		if (binding.flags.Test(ResourceFlagBits::StorageBuffer)) return vk::DescriptorType::eStorageBuffer;
+		if (binding.flags.Test(ResourceFlagBits::StorageBinding)) return vk::DescriptorType::eStorageImage;
+		if (binding.flags.Test(ResourceFlagBits::TextureBinding)) return vk::DescriptorType::eSampledImage;
+		throw std::invalid_argument(std::format("Unsupported Vulkan pipeline binding '{}'", binding.name));
+	}
+
+	vk::ShaderStageFlagBits MapPipelineStage(PipelineStage stage) {
+		switch (stage) {
+		case PipelineStage::Vertex: return vk::ShaderStageFlagBits::eVertex;
+		case PipelineStage::Fragment: return vk::ShaderStageFlagBits::eFragment;
+		case PipelineStage::TessellationControl: return vk::ShaderStageFlagBits::eTessellationControl;
+		case PipelineStage::TessellationEvaluation: return vk::ShaderStageFlagBits::eTessellationEvaluation;
+		case PipelineStage::Geometry: return vk::ShaderStageFlagBits::eGeometry;
+		case PipelineStage::Task: return vk::ShaderStageFlagBits::eTaskEXT;
+		case PipelineStage::Mesh: return vk::ShaderStageFlagBits::eMeshEXT;
+		default: throw std::invalid_argument("Compute stage cannot be used in a Vulkan graphics pipeline");
+		}
+	}
+
+	vk::CompareOp MapPipelineCompareOperation(CompareOperation operation) {
+		return static_cast<vk::CompareOp>(static_cast<std::uint32_t>(operation));
+	}
+
+	vk::StencilOp MapPipelineStencilOperation(StencilOperation operation) {
+		constexpr vk::StencilOp values[] = {
+			vk::StencilOp::eKeep, vk::StencilOp::eZero, vk::StencilOp::eReplace, vk::StencilOp::eInvert,
+			vk::StencilOp::eIncrementAndClamp, vk::StencilOp::eDecrementAndClamp,
+			vk::StencilOp::eIncrementAndWrap, vk::StencilOp::eDecrementAndWrap
+		};
+		return values[static_cast<std::size_t>(operation)];
+	}
+
+	vk::StencilOpState MapPipelineStencilFace(StencilFaceState const& face) {
+		return vk::StencilOpState(
+			MapPipelineStencilOperation(face.fail_operation),
+			MapPipelineStencilOperation(face.pass_operation),
+			MapPipelineStencilOperation(face.depth_fail_operation),
+			MapPipelineCompareOperation(face.compare)
+		);
+	}
+
+	vk::BlendFactor MapPipelineBlendFactor(BlendFactor factor) {
+		switch (factor) {
+		case BlendFactor::Zero: return vk::BlendFactor::eZero;
+		case BlendFactor::One: return vk::BlendFactor::eOne;
+		case BlendFactor::SourceColor: return vk::BlendFactor::eSrcColor;
+		case BlendFactor::OneMinusSourceColor: return vk::BlendFactor::eOneMinusSrcColor;
+		case BlendFactor::SourceAlpha: return vk::BlendFactor::eSrcAlpha;
+		case BlendFactor::OneMinusSourceAlpha: return vk::BlendFactor::eOneMinusSrcAlpha;
+		case BlendFactor::DestinationColor: return vk::BlendFactor::eDstColor;
+		case BlendFactor::OneMinusDestinationColor: return vk::BlendFactor::eOneMinusDstColor;
+		case BlendFactor::DestinationAlpha: return vk::BlendFactor::eDstAlpha;
+		case BlendFactor::OneMinusDestinationAlpha: return vk::BlendFactor::eOneMinusDstAlpha;
+		case BlendFactor::SourceAlphaSaturated: return vk::BlendFactor::eSrcAlphaSaturate;
+		case BlendFactor::Constant: return vk::BlendFactor::eConstantColor;
+		case BlendFactor::OneMinusConstant: return vk::BlendFactor::eOneMinusConstantColor;
+		default: return vk::BlendFactor::eOne;
+		}
+	}
+
+	vk::BlendOp MapPipelineBlendOperation(BlendOperation operation) {
+		switch (operation) {
+		case BlendOperation::Add: return vk::BlendOp::eAdd;
+		case BlendOperation::Subtract: return vk::BlendOp::eSubtract;
+		case BlendOperation::ReverseSubtract: return vk::BlendOp::eReverseSubtract;
+		case BlendOperation::Min: return vk::BlendOp::eMin;
+		case BlendOperation::Max: return vk::BlendOp::eMax;
+		default: return vk::BlendOp::eAdd;
+		}
+	}
+
+	bool IsDynamicRenderingEnabled(Backend::LogicalDevice const& ld) {
+		using Key = VkDevice;
+		struct KeyHash {
+			std::size_t operator()(Key key) const noexcept {
+				return std::hash<void*>{}(reinterpret_cast<void*>(key));
+			}
+		};
+		using List = plastic::ds::StaticList<std::pair<Key const, bool>, 64u>;
+		static plastic::ds::LRUCache<
+			plastic::ds::StaticHashTable<Key, typename List::iterator, 64u, KeyHash>,
+			List,
+			64u
+		> cache;
+		static std::mutex mutex;
+
+		Key key = static_cast<VkDevice>(*ld.impl);
+		if (std::unique_lock<std::mutex> lock(mutex); cache.Contains(key)) {
+			return cache.Get(key);
+		}
+
+		auto properties = ld.phys_dev.impl->getProperties(*ld.dispatcher);
+		bool extension = std::ranges::contains(
+			ld.enabled_extensions,
+			std::string_view(vk::KHRDynamicRenderingExtensionName)
+		);
+		vk::PhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features;
+		vk::PhysicalDeviceFeatures2 features({}, &dynamic_rendering_features);
+		ld.phys_dev.impl->getFeatures2(&features, *ld.dispatcher);
+		bool enabled = extension && dynamic_rendering_features.dynamicRendering;
+		{
+			std::unique_lock<std::mutex> lock(mutex);
+			cache.Put(key, enabled);
+		}
+		return enabled;
+	}
+
 
 }
 
 namespace fyuu_rhi::vulkan {
-
-	Backend::Promise Backend::CreatePromise(Backend::LogicalDevice const& ld) {
-
-		auto iter = std::find(ld.enabled_extensions.begin(), ld.enabled_extensions.end(), vk::KHRTimelineSemaphoreExtensionName);
-
-		if (iter != ld.enabled_extensions.end()) {
-			vk::SemaphoreTypeCreateInfo sem_type_info(
-				vk::SemaphoreType::eTimeline,
-				0ull	// initial value
-			);
-			vk::SemaphoreCreateInfo sem_info(
-				vk::SemaphoreCreateFlags{},
-				&sem_type_info
-			);
-			vk::SharedSemaphore sem(
-				ld.impl->createSemaphore(sem_info, nullptr, *ld.dispatcher),
-				ld.impl,
-				{ nullptr, *ld.dispatcher }
-			);
-
-			return { 
-				decltype(Backend::Promise::impl)(std::in_place_type<Backend::Promise::TimelineSemaphore>, std::move(sem), TimelineCounter{}), 
-				ld.dispatcher,
-				{}
-			};
-
-		}
-
-		static thread_local std::array<std::byte, 64 * 1024> fixed_buffer; // 64KB fixed buffer
-		static thread_local std::pmr::monotonic_buffer_resource fixed_upstream(
-			fixed_buffer.data(), fixed_buffer.size(),
-			std::pmr::new_delete_resource()
-		);
-
-		static thread_local std::pmr::unsynchronized_pool_resource pool(&fixed_upstream);
-		static thread_local std::pmr::polymorphic_allocator<Backend::BinarySynchronization> alloc(&pool);
-
-		return { 
-			decltype(Backend::Promise::impl)(std::allocate_shared<Backend::BinarySynchronization>(alloc, CreateBinarySemaphore(ld), CreateFence(ld))),
-			ld.dispatcher,
-			{}
-		};
-	}
 
 	Backend::Resource Backend::CreateBuffer(LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 		
@@ -503,7 +796,7 @@ namespace fyuu_rhi::vulkan {
 
 		auto result = static_cast<vk::Result>(
 			vmaCreateBuffer(
-				ld.mem_alloc.get(),
+				ld.mem_alloc->impl,
 				&buf_info,
 				&alloc_create_info,
 				&buf,
@@ -515,24 +808,9 @@ namespace fyuu_rhi::vulkan {
 			throw std::runtime_error(std::format("Calling vmaCreateBuffer() failed, VMA reported: {}", vk::to_string(result)));
 		}
 
-		static thread_local std::array<std::byte, 1024 * sizeof(Backend::Resource::Buffer)> fixed_buffer;
-		static thread_local std::pmr::monotonic_buffer_resource fixed_upstream(
-			fixed_buffer.data(), fixed_buffer.size(),
-			std::pmr::new_delete_resource()
-		);
+		std::pmr::polymorphic_allocator<Backend::Resource::Buffer> pmr_alloc(&s_pool);
 
-		static thread_local std::pmr::unsynchronized_pool_resource pool(&fixed_upstream);
-		static thread_local std::pmr::polymorphic_allocator<Backend::Resource::Buffer> pmr_alloc(&pool);
-
-		std::shared_ptr<Backend::Resource::Buffer> vma_buf(
-			pmr_alloc.new_object<Backend::Resource::Buffer>(buf_info, buf, alloc, alloc_info),
-			[mem_alloc = ld.mem_alloc](Backend::Resource::Buffer* buf) {
-				vmaDestroyBuffer(mem_alloc.get(), buf->vk_handle, buf->alloc);
-				pmr_alloc.delete_object(buf);
-			}
-		);
-
-		return { std::move(vma_buf) };
+		return { std::allocate_shared<Backend::Resource::Buffer>(pmr_alloc, ld.mem_alloc, buf_info, buf, alloc, alloc_info) };
 
 	}
 
@@ -571,7 +849,7 @@ namespace fyuu_rhi::vulkan {
 
 		auto result = static_cast<vk::Result>(
 			vmaCreateImage(
-				ld.mem_alloc.get(),
+				ld.mem_alloc->impl,
 				&tex_info,
 				&alloc_create_info,
 				&tex,
@@ -583,44 +861,16 @@ namespace fyuu_rhi::vulkan {
 			throw std::runtime_error(std::format("Calling vmaCreateImage() failed, VMA reported: {}", vk::to_string(result)));
 		}
 
-		static thread_local std::array<std::byte, 1024 * sizeof(Backend::Resource::Texture)> fixed_buffer;
-		static thread_local std::pmr::monotonic_buffer_resource fixed_upstream(
-			fixed_buffer.data(), fixed_buffer.size(),
-			std::pmr::new_delete_resource()
-		);
+		static std::pmr::synchronized_pool_resource pool(&s_pool);
+		std::pmr::polymorphic_allocator<Backend::Resource::Texture> pmr_alloc(&pool);
 
-		static thread_local std::pmr::unsynchronized_pool_resource pool(&fixed_upstream);
-		static thread_local std::pmr::polymorphic_allocator<Backend::Resource::Texture> pmr_alloc(&pool);
-
-		RegisterTexture(tex);
-
-		std::shared_ptr<Backend::Resource::Texture> vma_buf(
-			pmr_alloc.new_object<Backend::Resource::Texture>(tex_info, tex, alloc, alloc_info),
-			[mem_alloc = ld.mem_alloc](Backend::Resource::Texture* tex) {
-				UnregisterTexture(tex->vk_handle);			
-				vmaDestroyImage(mem_alloc.get(), tex->vk_handle, tex->alloc);
-				pmr_alloc.delete_object(tex);
-			}
-		);
-
-		return { std::move(vma_buf) };
+		return { std::allocate_shared<Backend::Resource::Texture>(pmr_alloc, ld.mem_alloc, tex_info, tex, alloc, alloc_info, vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined) };
 
 	}
 
-	Backend::View CreateTextureView(Backend::LogicalDevice const& ld, Backend::Resource const& res, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
+	Backend::View Backend::CreateTextureView(Backend::LogicalDevice const& ld, Backend::Resource const& res, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
 
-		vk::Image tex = std::visit(
-			[](auto&& res) {
-				using Res = std::decay_t<decltype(res)>;
-				if constexpr (std::same_as<Res, Backend::Resource::Texture>) {
-					return res.vk_handle;
-				}
-				else {
-					throw std::invalid_argument("Not a valid texture");
-				}
-			},
-			res.impl
-		);
+		vk::Image tex = std::visit(GetTextureHandle{}, res.impl);
 
 		vk::ImageViewCreateInfo info(
 			{},
@@ -634,7 +884,7 @@ namespace fyuu_rhi::vulkan {
 				vk::ComponentSwizzle::eIdentity
 			},
 			{
-				vk::ImageAspectFlagBits::eColor,
+				ExtractTextureAspect(base_mip_lvl, mip_lvl_cnt, base_arr_layer, arr_layer_cnt, flags, ld),
 				static_cast<std::uint32_t>(base_mip_lvl),
 				static_cast<std::uint32_t>(mip_lvl_cnt),
 				static_cast<std::uint32_t>(base_arr_layer),
@@ -642,6 +892,336 @@ namespace fyuu_rhi::vulkan {
 			}
 		);
 
+		vk::ImageView raw = ld.impl->createImageView(info, nullptr, *ld.dispatcher);
+		vk::SharedImageView shared_view(raw, ld.impl, { nullptr, *ld.dispatcher });
+		return { Backend::View::Texture{ info, std::move(shared_view) } };
+
+	}
+
+	Backend::View Backend::CreateBufferView(LogicalDevice const& ld, Resource const& res, std::size_t offset, std::size_t range, ResourceFlags const& flags) {
+		
+		vk::Buffer buf = std::visit(GetBufferHandle{}, res.impl);
+		
+		vk::BufferViewCreateInfo info(
+			{},
+			buf,
+			ExtractFormat(flags),
+			offset,
+			range
+		);
+		
+		vk::BufferView raw = ld.impl->createBufferView(info, nullptr, *ld.dispatcher);
+		vk::SharedBufferView shared_view(raw, ld.impl, { nullptr, *ld.dispatcher });
+		return { Backend::View::Buffer{ info, std::move(shared_view) } };
+
+	}
+
+	vk::SharedSampler Backend::CreateSampler(Backend::LogicalDevice const& ld, SamplerDescriptor const& descriptor) {
+
+		vk::SamplerCreateInfo info(
+			{},
+			MapFilterMode(descriptor.min_filter),
+			MapFilterMode(descriptor.mag_filter),
+			MapMipmapMode(descriptor.mipmap_filter),
+			MapAddressMode(descriptor.address_mode_u),
+			MapAddressMode(descriptor.address_mode_v),
+			MapAddressMode(descriptor.address_mode_w),
+			0.0f,
+			(descriptor.max_anisotropy > 1u) ? vk::True : vk::False,
+			descriptor.max_anisotropy,
+			(descriptor.compare_function != CompareFunction::Unknown) ? vk::True : vk::False,
+			MapCompareOp(descriptor.compare_function),
+			descriptor.min_lod,
+			descriptor.max_lod,
+			vk::BorderColor::eFloatTransparentBlack,
+			vk::False
+		);
+
+		vk::Sampler raw = ld.impl->createSampler(info, nullptr, *ld.dispatcher);
+		vk::SharedSampler shared_sampler(raw, ld.impl, { nullptr, *ld.dispatcher });
+		return { std::move(shared_sampler) };
+
+	}
+
+	Backend::Pipeline Backend::CreateGraphicsPipeline(
+		Backend::LogicalDevice const& ld,
+		GraphicsPipelineDescriptor const& descriptor
+	) {
+		auto properties = ld.phys_dev.impl->getProperties(*ld.dispatcher);
+		auto spirv_profile = SelectSPIRVProfile(properties.apiVersion);
+		slang::TargetDesc target{ .format = SLANG_SPIRV };
+		target.profile = shader::SlangGlobalSession()->findProfile(spirv_profile.data());
+		auto cache_tag = std::format(
+			"vulkan-{:04x}-{:04x}-{:08x}-api-{:08x}-{}",
+			properties.vendorID,
+			properties.deviceID,
+			properties.driverVersion,
+			properties.apiVersion,
+			spirv_profile
+		);
+		shader::SlangProgram program(target, descriptor.program, cache_tag);
+		auto binding_metadata = MakePipelineBindingMetadata(program.Interface());
+
+		std::uint32_t max_space = 0;
+		for (auto const& binding : program.Interface().bindings) max_space = std::max(max_space, binding.space);
+		std::vector<std::vector<vk::DescriptorSetLayoutBinding>> set_bindings(
+			program.Interface().bindings.empty() ? 0 : max_space + 1
+		);
+		for (auto const& binding : program.Interface().bindings) {
+			set_bindings[binding.space].emplace_back(
+				binding.binding,
+				MapPipelineDescriptorType(binding),
+				binding.count,
+				MapPipelineStageFlags(binding.visibility)
+			);
+		}
+
+		Backend::Pipeline pipeline;
+		pipeline.bindings = std::move(binding_metadata);
+		std::vector<vk::DescriptorSetLayout> raw_set_layouts;
+		for (auto& bindings : set_bindings) {
+			std::ranges::sort(bindings, {}, &vk::DescriptorSetLayoutBinding::binding);
+			vk::DescriptorSetLayoutCreateInfo info({}, bindings);
+			auto raw = ld.impl->createDescriptorSetLayout(info, nullptr, *ld.dispatcher);
+			pipeline.descriptor_set_layouts.push_back(
+				vk::SharedDescriptorSetLayout(raw, ld.impl, { nullptr, *ld.dispatcher })
+			);
+			raw_set_layouts.push_back(raw);
+		}
+		std::vector<vk::PushConstantRange> push_constants;
+		for (auto const& range : program.Interface().push_constants) {
+			push_constants.emplace_back(MapPipelineStageFlags(range.visibility), range.offset, range.size);
+		}
+		vk::PipelineLayoutCreateInfo layout_info({}, raw_set_layouts, push_constants);
+		auto raw_layout = ld.impl->createPipelineLayout(layout_info, nullptr, *ld.dispatcher);
+		pipeline.layout = vk::SharedPipelineLayout(raw_layout, ld.impl, { nullptr, *ld.dispatcher });
+
+		std::vector<vk::SharedShaderModule> modules;
+		std::vector<vk::PipelineShaderStageCreateInfo> stages;
+		for (auto const& entry : program.EntryPoints()) {
+			if (entry.code.size() % sizeof(std::uint32_t) != 0) {
+				throw std::runtime_error("Slang returned misaligned SPIR-V bytecode");
+			}
+			vk::ShaderModuleCreateInfo module_info(
+				{},
+				entry.code.size(),
+				reinterpret_cast<std::uint32_t const*>(entry.code.data())
+			);
+			auto raw = ld.impl->createShaderModule(module_info, nullptr, *ld.dispatcher);
+			modules.push_back(vk::SharedShaderModule(raw, ld.impl, { nullptr, *ld.dispatcher }));
+			stages.emplace_back(vk::PipelineShaderStageCreateFlags{}, MapPipelineStage(entry.stage), raw, entry.name.c_str());
+		}
+
+		std::vector<vk::VertexInputBindingDescription> vertex_bindings;
+		for (auto const& binding : descriptor.vertex.buffers) {
+			vertex_bindings.emplace_back(
+				binding.slot,
+				binding.stride,
+				binding.input_rate == VertexInputRate::Vertex ? vk::VertexInputRate::eVertex : vk::VertexInputRate::eInstance
+			);
+		}
+		std::vector<vk::VertexInputAttributeDescription> vertex_attributes;
+		for (auto const& attribute : descriptor.vertex.attributes) {
+			vertex_attributes.emplace_back(
+				attribute.location,
+				attribute.slot,
+				ExtractFormat(ResourceFlags(attribute.format)),
+				attribute.offset
+			);
+		}
+		vk::PipelineVertexInputStateCreateInfo vertex_input({}, vertex_bindings, vertex_attributes);
+		auto topology =
+			descriptor.primitive.topology == PrimitiveTopology::PointList ? vk::PrimitiveTopology::ePointList :
+			descriptor.primitive.topology == PrimitiveTopology::LineList ? vk::PrimitiveTopology::eLineList :
+			descriptor.primitive.topology == PrimitiveTopology::LineStrip ? vk::PrimitiveTopology::eLineStrip :
+			descriptor.primitive.topology == PrimitiveTopology::TriangleStrip ? vk::PrimitiveTopology::eTriangleStrip :
+			vk::PrimitiveTopology::eTriangleList;
+		vk::PipelineInputAssemblyStateCreateInfo input_assembly({}, topology, descriptor.primitive.strip_index_format.has_value());
+		vk::PipelineViewportStateCreateInfo viewport({}, 1, nullptr, 1, nullptr);
+		vk::PipelineRasterizationStateCreateInfo raster(
+			{}, false, false, vk::PolygonMode::eFill,
+			descriptor.rasterization.cull_mode == CullMode::Front ? vk::CullModeFlagBits::eFront :
+			descriptor.rasterization.cull_mode == CullMode::Back ? vk::CullModeFlagBits::eBack : vk::CullModeFlagBits::eNone,
+			descriptor.rasterization.front_face == FrontFace::CounterClockwise ? vk::FrontFace::eCounterClockwise : vk::FrontFace::eClockwise,
+			descriptor.rasterization.depth_bias.constant != 0 || descriptor.rasterization.depth_bias.slope_scale != 0,
+			static_cast<float>(descriptor.rasterization.depth_bias.constant),
+			descriptor.rasterization.depth_bias.clamp,
+			descriptor.rasterization.depth_bias.slope_scale,
+			1.0f
+		);
+		vk::PipelineMultisampleStateCreateInfo multisample(
+			{}, ExtractSampleCount(ResourceFlags(descriptor.multisample.sample_count)),
+			false, 0.0f, &descriptor.multisample.mask,
+			descriptor.multisample.alpha_to_coverage_enabled, false
+		);
+		vk::PipelineDepthStencilStateCreateInfo depth_stencil;
+		vk::Format depth_format = vk::Format::eUndefined;
+		if (descriptor.depth_stencil) {
+			auto const& state = *descriptor.depth_stencil;
+			depth_format = ExtractFormat(ResourceFlags(state.format));
+			depth_stencil = vk::PipelineDepthStencilStateCreateInfo(
+				{}, state.depth_test_enabled, state.depth_write_enabled, MapPipelineCompareOperation(state.depth_compare),
+				false, state.stencil_enabled, MapPipelineStencilFace(state.stencil_front), MapPipelineStencilFace(state.stencil_back)
+			);
+		}
+		std::vector<vk::PipelineColorBlendAttachmentState> blend_attachments;
+		std::vector<vk::Format> color_formats;
+		for (auto const& target_state : descriptor.color_targets) {
+			color_formats.push_back(ExtractFormat(ResourceFlags(target_state.format)));
+			vk::PipelineColorBlendAttachmentState attachment;
+			attachment.colorWriteMask = static_cast<vk::ColorComponentFlags>(static_cast<std::uint8_t>(target_state.write_mask));
+			if (target_state.blend) {
+				auto const& state = *target_state.blend;
+				attachment.blendEnable = true;
+				attachment.srcColorBlendFactor = MapPipelineBlendFactor(state.color.source_factor);
+				attachment.dstColorBlendFactor = MapPipelineBlendFactor(state.color.destination_factor);
+				attachment.colorBlendOp = MapPipelineBlendOperation(state.color.operation);
+				attachment.srcAlphaBlendFactor = MapPipelineBlendFactor(state.alpha.source_factor);
+				attachment.dstAlphaBlendFactor = MapPipelineBlendFactor(state.alpha.destination_factor);
+				attachment.alphaBlendOp = MapPipelineBlendOperation(state.alpha.operation);
+			}
+			blend_attachments.push_back(attachment);
+		}
+		vk::PipelineColorBlendStateCreateInfo blend({}, false, vk::LogicOp::eCopy, blend_attachments);
+		std::array dynamic_states{ vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+		vk::PipelineDynamicStateCreateInfo dynamic({}, dynamic_states);
+		auto stencil_format =
+			depth_format == vk::Format::eD24UnormS8Uint || depth_format == vk::Format::eD32SfloatS8Uint
+			? depth_format
+			: vk::Format::eUndefined;
+		vk::PipelineRenderingCreateInfo rendering({}, color_formats, depth_format, stencil_format);
+		vk::RenderPass compatible_render_pass;
+		auto dynamic_rendering_enabled = IsDynamicRenderingEnabled(ld);
+		if (!dynamic_rendering_enabled) {
+			auto samples = ExtractSampleCount(ResourceFlags(descriptor.multisample.sample_count));
+			std::vector<vk::AttachmentDescription> attachments;
+			std::vector<vk::AttachmentReference> color_references;
+			attachments.reserve(color_formats.size() + (depth_format != vk::Format::eUndefined ? 1u : 0u));
+			color_references.reserve(color_formats.size());
+			for (auto format : color_formats) {
+				auto index = static_cast<std::uint32_t>(attachments.size());
+				attachments.emplace_back(
+					vk::AttachmentDescriptionFlags{},
+					format,
+					samples,
+					vk::AttachmentLoadOp::eDontCare,
+					vk::AttachmentStoreOp::eStore,
+					vk::AttachmentLoadOp::eDontCare,
+					vk::AttachmentStoreOp::eDontCare,
+					vk::ImageLayout::eUndefined,
+					vk::ImageLayout::eColorAttachmentOptimal
+				);
+				color_references.emplace_back(index, vk::ImageLayout::eColorAttachmentOptimal);
+			}
+			std::optional<vk::AttachmentReference> depth_reference;
+			if (depth_format != vk::Format::eUndefined) {
+				auto index = static_cast<std::uint32_t>(attachments.size());
+				attachments.emplace_back(
+					vk::AttachmentDescriptionFlags{},
+					depth_format,
+					samples,
+					vk::AttachmentLoadOp::eDontCare,
+					vk::AttachmentStoreOp::eStore,
+					vk::AttachmentLoadOp::eDontCare,
+					vk::AttachmentStoreOp::eStore,
+					vk::ImageLayout::eUndefined,
+					vk::ImageLayout::eDepthStencilAttachmentOptimal
+				);
+				depth_reference.emplace(index, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+			}
+			vk::SubpassDescription subpass;
+			subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+			subpass.colorAttachmentCount = static_cast<std::uint32_t>(color_references.size());
+			subpass.pColorAttachments = color_references.data();
+			subpass.pDepthStencilAttachment = depth_reference ? &*depth_reference : nullptr;
+			std::array subpasses{ subpass };
+			vk::RenderPassCreateInfo render_pass_info(
+				vk::RenderPassCreateFlags{},
+				attachments,
+				subpasses
+			);
+			compatible_render_pass = ld.impl->createRenderPass(render_pass_info, nullptr, *ld.dispatcher);
+			pipeline.compatible_render_pass = vk::SharedRenderPass(
+				compatible_render_pass,
+				ld.impl,
+				{ nullptr, *ld.dispatcher }
+			);
+		}
+		vk::GraphicsPipelineCreateInfo info(
+			{}, stages, &vertex_input, &input_assembly, nullptr, &viewport, &raster,
+			&multisample, descriptor.depth_stencil ? &depth_stencil : nullptr, &blend, &dynamic,
+			raw_layout,
+			compatible_render_pass
+		);
+		info.pNext = dynamic_rendering_enabled ? &rendering : nullptr;
+
+		static std::mutex pipeline_cache_mutex;
+		auto cache_path = cache::GetCacheFilePath(std::format(
+			"vulkan-pipeline-{:04x}-{:04x}-{:08x}.bin",
+			properties.vendorID, properties.deviceID, properties.driverVersion
+		));
+		std::vector<std::byte> cache_data;
+		{
+			std::unique_lock<std::mutex> cache_lock(pipeline_cache_mutex);
+			std::ifstream input(cache_path, std::ios::binary | std::ios::ate);
+			if (input) {
+				auto size = input.tellg();
+				if (size > 0) {
+					cache_data.resize(static_cast<std::size_t>(size));
+					input.seekg(0);
+					input.read(reinterpret_cast<char*>(cache_data.data()), size);
+				}
+			}
+		}
+		vk::PipelineCacheCreateInfo cache_info({}, cache_data.size(), cache_data.data());
+		auto raw_cache = ld.impl->createPipelineCache(cache_info, nullptr, *ld.dispatcher);
+		vk::SharedPipelineCache pipeline_cache(raw_cache, ld.impl, { nullptr, *ld.dispatcher });
+		auto creation = ld.impl->createGraphicsPipeline(raw_cache, info, nullptr, *ld.dispatcher);
+		pipeline.state = vk::SharedPipeline(creation.value, ld.impl, { nullptr, *ld.dispatcher });
+		auto updated_cache = ld.impl->getPipelineCacheData(raw_cache, *ld.dispatcher);
+		{
+			std::unique_lock<std::mutex> cache_lock(pipeline_cache_mutex);
+
+			auto temporary = cache_path;
+			temporary += std::format(
+				".tmp-{:x}",
+				std::hash<std::thread::id>{}(std::this_thread::get_id())
+			);
+
+			{
+				std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+				output.write(
+					reinterpret_cast<char const*>(updated_cache.data()),
+					static_cast<std::streamsize>(updated_cache.size())
+				);
+
+				if (!output) {
+					std::error_code error;
+					fs::remove(temporary, error);
+					return pipeline;
+				}
+			}
+
+			std::error_code error;
+			fs::remove(cache_path, error);
+
+			error.clear();
+			fs::rename(temporary, cache_path, error);
+			if (error) {
+				fs::remove(temporary, error);
+			}
+		}
+		return pipeline;
+	}
+
+	Backend::PipelineResourceGroup Backend::CreatePipelineResourceGroup(
+		Backend::LogicalDevice const& ld,
+		Backend::Pipeline const& pipeline,
+		std::uint32_t space,
+		std::span<NativePipelineResourceBinding<Backend> const> bindings
+	) {
+		(void)ld;
+		return MakePipelineResourceGroup<Backend>(pipeline.bindings, space, bindings);
 	}
 
 }

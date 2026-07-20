@@ -5,20 +5,54 @@ module;
 #include <cstdlib>
 #include <stdexcept>
 #include <type_traits>
+#include <array>
+#include <vector>
 #include <memory>
 #include <memory_resource>
+#include <optional>
+#include <format>
+#include <ranges>
+#include <fstream>
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <mutex>
+#include <system_error>
+#include <functional>
+#include <thread>
+#include <cstring>
 #endif // !defined(__cpp_lib_modules)
 #if !defined(__APPLE__)
 #include "glad/glad.h"
+
 #if defined(_WIN32)
 #include "glad/glad_wgl.h"
-#else
-#if defined(__linux__)
+
+#elif defined(__linux__)
 #include "glad/glad_glx.h"
-#endif // defined(__linux__)
 #include "glad/glad_egl.h"
+
+#elif defined(__ANDROID__)
+#include "glad/glad_egl.h"
+#include <android/native_window.h>
+#include <android/android_native_app_glue.h>
+
 #endif // defined(_WIN32)
-#endif //!defined(__APPLE__)
+
+#include <boost/scope/defer.hpp>
+#include <boost/hash2/xxhash.hpp>
+
+#include <slang.h>
+
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/SPIRV/GlslangToSpv.h>
+#include <glslang/Include/ResourceLimits.h>
+#include <spirv_cross.hpp>
+#include <spirv_glsl.hpp>
+
+#include "log.hpp"
+
+#endif // !defined(__APPLE__)
 module fyuu_rhi:opengl_logical_device;
 #if !defined(__APPLE__)
 #if defined(__cpp_lib_modules)
@@ -26,11 +60,24 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :opengl_traits;
 import :resource_types;
-import :command_types;
+import :sampler_types;
+import :pipeline_types;
+import :slang_pipeline_interface;
+import :slang;
+import :cache_system;
+import :native_pipeline_binding;
+
+import plastic.static_hash_table;
+
+namespace fs = std::filesystem;
 
 namespace {
 
 	using namespace fyuu_rhi;
+	using namespace fyuu_rhi::opengl;
+
+	std::pmr::synchronized_pool_resource s_obj_pool{};
+	std::mutex s_pipeline_cache_mutex;
 
 	GLbitfield ExtractBufferFlags(ResourceFlags const& flags) noexcept {
 		GLbitfield gl_flags = 0;
@@ -224,47 +271,933 @@ namespace {
 
 	}
 
+	GLenum ExtractTextureViewTarget(ResourceFlags const& flags) {
+
+		bool is_conflicting = flags.TestSingleInRange(ResourceFlagBits::TextureView1D, ResourceFlagBits::TextureView3D);
+		if (is_conflicting) {
+			throw std::invalid_argument("Only one texture view type can be set");
+		}
+
+		if (flags.Test(ResourceFlagBits::TextureView1D))
+			return GL_TEXTURE_1D;
+		else if (flags.Test(ResourceFlagBits::TextureView2D))
+			return GL_TEXTURE_2D;
+		else if (flags.Test(ResourceFlagBits::TextureView2DArray))
+			return GL_TEXTURE_2D_ARRAY;
+		else if (flags.Test(ResourceFlagBits::TextureViewCube))
+			return GL_TEXTURE_CUBE_MAP;
+		else if (flags.Test(ResourceFlagBits::TextureViewCubeArray))
+			return GL_TEXTURE_CUBE_MAP_ARRAY;
+		else if (flags.Test(ResourceFlagBits::TextureView3D))
+			return GL_TEXTURE_3D;
+		else
+			return GL_TEXTURE_2D;
+
+	}
+
+	GLenum MapAddressMode(AddressMode mode) noexcept {
+		switch (mode) {
+		case AddressMode::ClampToEdge:		return GL_CLAMP_TO_EDGE;
+		case AddressMode::Repeat:			return GL_REPEAT;
+		case AddressMode::MirroredRepeat:	return GL_MIRRORED_REPEAT;
+		default:							return GL_CLAMP_TO_EDGE;
+		}
+	}
+
+	GLenum MapFilterMode(FilterMode mode) noexcept {
+		switch (mode) {
+		case FilterMode::Nearest:	return GL_NEAREST;
+		case FilterMode::Linear:	return GL_LINEAR;
+		default:					return GL_NEAREST;
+		}
+	}
+
+	GLenum MapCompare(CompareFunction func) noexcept {
+		switch (func) {
+		case CompareFunction::Never:		return GL_NEVER;
+		case CompareFunction::Less:			return GL_LESS;
+		case CompareFunction::Equal:		return GL_EQUAL;
+		case CompareFunction::LessEqual:	return GL_LEQUAL;
+		case CompareFunction::Greater:		return GL_GREATER;
+		case CompareFunction::NotEqual:		return GL_NOTEQUAL;
+		case CompareFunction::GreaterEqual: return GL_GEQUAL;
+		case CompareFunction::Always:		return GL_ALWAYS;
+		default:							return GL_NONE;
+		}
+	}
+
+	bool SupportsProgramBinary() noexcept {
+		return GLAD_GL_VERSION_4_1 || GLAD_GL_ES_VERSION_3_0 || GLAD_GL_ARB_get_program_binary;
+	}
+
+	struct OpenGLShaderTarget {
+		SlangCompileTarget format;
+		std::string_view profile;
+		std::string_view cache_name;
+		std::uint32_t essl_version = 0;
+	};
+
+	OpenGLShaderTarget SelectOpenGLShaderTarget() {
+		if (GLAD_GL_ES_VERSION_3_2) return { SLANG_SPIRV, "spirv_1_0", "essl_320", 320 };
+		if (GLAD_GL_ES_VERSION_3_1) return { SLANG_SPIRV, "spirv_1_0", "essl_310", 310 };
+		if (GLAD_GL_ES_VERSION_3_0) return { SLANG_SPIRV, "spirv_1_0", "essl_300", 300 };
+		if (GLAD_GL_ES_VERSION_2_0) {
+			throw std::runtime_error("Graphics pipelines require OpenGL ES 3.0 or newer");
+		}
+		if (GLAD_GL_VERSION_4_6) return { SLANG_GLSL, "glsl_460", "glsl_460" };
+		if (GLAD_GL_VERSION_4_5) return { SLANG_GLSL, "glsl_450", "glsl_450" };
+		if (GLAD_GL_VERSION_4_4) return { SLANG_GLSL, "glsl_440", "glsl_440" };
+		if (GLAD_GL_VERSION_4_3) return { SLANG_GLSL, "glsl_430", "glsl_430" };
+		if (GLAD_GL_VERSION_4_2) return { SLANG_GLSL, "glsl_420", "glsl_420" };
+		if (GLAD_GL_VERSION_4_1) return { SLANG_GLSL, "glsl_410", "glsl_410" };
+		if (GLAD_GL_VERSION_4_0) return { SLANG_GLSL, "glsl_400", "glsl_400" };
+		if (GLAD_GL_VERSION_3_3) return { SLANG_GLSL, "glsl_330", "glsl_330" };
+		throw std::runtime_error("OpenGL graphics pipelines require OpenGL 3.3 or newer");
+	}
+
+	GLenum MapPipelineStage(PipelineStage stage) {
+		switch (stage) {
+		case PipelineStage::Vertex:					return GL_VERTEX_SHADER;
+		case PipelineStage::Fragment:				return GL_FRAGMENT_SHADER;
+		case PipelineStage::TessellationControl:	return GL_TESS_CONTROL_SHADER;
+		case PipelineStage::TessellationEvaluation:return GL_TESS_EVALUATION_SHADER;
+		case PipelineStage::Geometry:				return GL_GEOMETRY_SHADER;
+		case PipelineStage::Compute:
+			throw std::invalid_argument("A compute stage cannot be used in an OpenGL graphics pipeline");
+		case PipelineStage::Task:
+		case PipelineStage::Mesh:
+			throw std::invalid_argument("OpenGL mesh shading pipelines are not implemented");
+		default:
+			throw std::invalid_argument("Unsupported OpenGL pipeline stage");
+		}
+	}
+
+	std::string GetShaderInfoLog(GLuint shader) {
+		GLint length = 0;
+		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+		if (length <= 1) {
+			return {};
+		}
+		std::string result(static_cast<std::size_t>(length), '\0');
+		glGetShaderInfoLog(shader, length, nullptr, result.data());
+		return result;
+	}
+
+	std::string GetProgramInfoLog(GLuint program) {
+		GLint length = 0;
+		glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+		if (length <= 1) {
+			return {};
+		}
+		std::string result(static_cast<std::size_t>(length), '\0');
+		glGetProgramInfoLog(program, length, nullptr, result.data());
+		return result;
+	}
+
+	std::string ConvertSPIRVToESSL(
+		shader::SlangCompiledEntryPoint const& entry,
+		std::uint32_t version
+	) {
+		if (entry.code.empty() || entry.code.size() % sizeof(std::uint32_t) != 0) {
+			throw std::runtime_error(
+				std::format("Slang produced invalid SPIR-V for OpenGL ES entry point '{}'", entry.name)
+			);
+		}
+		std::vector<std::uint32_t> spirv(entry.code.size() / sizeof(std::uint32_t));
+		std::memcpy(spirv.data(), entry.code.data(), entry.code.size());
+		spirv_cross::CompilerGLSL compiler(std::move(spirv));
+		auto options = compiler.get_common_options();
+		options.version = version;
+		options.es = true;
+		options.vertex.fixup_clipspace = true;
+		options.vertex.flip_vert_y = false;
+		options.fragment.default_float_precision = spirv_cross::CompilerGLSL::Options::Mediump;
+		options.fragment.default_int_precision = spirv_cross::CompilerGLSL::Options::Highp;
+		compiler.set_common_options(options);
+		return compiler.compile();
+	}
+
+	GLuint CompilePipelineStage(
+		shader::SlangCompiledEntryPoint const& entry,
+		std::uint32_t essl_version
+	) {
+		auto shader_type = MapPipelineStage(entry.stage);
+		GLuint shader = glCreateShader(shader_type);
+		if (!shader) {
+			throw std::runtime_error("Failed to create an OpenGL pipeline stage");
+		}
+
+		std::string converted_source;
+		GLchar const* source = nullptr;
+		GLint length = 0;
+		if (essl_version) {
+			converted_source = ConvertSPIRVToESSL(entry, essl_version);
+			source = converted_source.data();
+			length = static_cast<GLint>(converted_source.size());
+		}
+		else {
+			source = reinterpret_cast<GLchar const*>(entry.code.data());
+			length = static_cast<GLint>(entry.code.size());
+		}
+		glShaderSource(shader, 1, &source, &length);
+		glCompileShader(shader);
+
+		GLint compiled = GL_FALSE;
+		glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+		if (compiled == GL_FALSE) {
+			auto diagnostics = GetShaderInfoLog(shader);
+			glDeleteShader(shader);
+			throw std::runtime_error(
+				std::format("Failed to compile OpenGL pipeline entry point '{}': {}", entry.name, diagnostics)
+			);
+		}
+		return shader;
+	}
+
+	template <class Hasher>
+	void HashString(Hasher& hash, std::string_view value) {
+		auto size = static_cast<std::uint64_t>(value.size());
+		hash.update(&size, sizeof(size));
+		hash.update(value.data(), value.size());
+	}
+
+	fs::path GetPipelineCachePath(
+		shader::SlangProgram const& program,
+		std::string_view profile
+	) {
+		boost::hash2::xxhash_64 hash;
+		HashString(hash, profile);
+		for (auto value : { GL_VENDOR, GL_RENDERER, GL_VERSION, GL_SHADING_LANGUAGE_VERSION }) {
+			auto text = reinterpret_cast<char const*>(glGetString(value));
+			HashString(hash, text ? std::string_view(text) : std::string_view{});
+		}
+		for (auto const& entry : program.EntryPoints()) {
+			auto stage = static_cast<std::uint8_t>(entry.stage);
+			hash.update(&stage, sizeof(stage));
+			HashString(hash, entry.name);
+			hash.update(entry.code.data(), entry.code.size());
+		}
+		return cache::GetCacheFilePath(std::format("opengl-pipeline-{:016x}.bin", hash.result()));
+	}
+
+	std::string GetOpenGLCacheTag(std::string_view profile) {
+		boost::hash2::xxhash_64 hash;
+		HashString(hash, profile);
+		for (auto value : { GL_VENDOR, GL_RENDERER, GL_VERSION, GL_SHADING_LANGUAGE_VERSION }) {
+			auto text = reinterpret_cast<char const*>(glGetString(value));
+			HashString(hash, text ? std::string_view(text) : std::string_view{});
+		}
+		return std::format("opengl-{}-{:016x}", profile, hash.result());
+	}
+
+	GLuint LoadProgramBinary(fs::path const& path) {
+
+		if (!SupportsProgramBinary()) {
+			return 0u;
+		}
+
+		GLenum bin_fmt = 0;
+		std::vector<std::byte> bytes;
+		{
+			std::unique_lock<std::mutex> cache_lock(s_pipeline_cache_mutex);
+			std::ifstream file(path, std::ios::binary | std::ios::ate);
+			if (!file) {
+				return 0u;
+			}
+			std::streamsize size = file.tellg();
+			if (size <= static_cast<std::streamsize>(sizeof(GLenum))) {
+				return 0u;
+			}
+			file.seekg(0, std::ios::beg);
+			bytes.resize(static_cast<std::size_t>(size) - sizeof(GLenum));
+			if (!file.read(reinterpret_cast<char*>(&bin_fmt), sizeof(GLenum))) {
+				return 0u;
+			}
+			if (!file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) {
+				return 0u;
+			}
+		}
+
+		GLuint program = glCreateProgram();
+		if (!program) {
+#if defined(NDEBUG)
+			throw std::runtime_error("LoadCache(): Calling glCreateProgram() but failed");
+#else
+			throw std::runtime_error(
+				std::format("LoadCache(): Calling glCreateProgram() but failed, OpenGL reports {}", glGetError())
+			);
+#endif // defined(NDEBUG)
+		}
+
+		glProgramBinary(program, bin_fmt, bytes.data(), static_cast<GLsizei>(bytes.size()));
+
+		GLint link_status = 0;
+		glGetProgramiv(program, GL_LINK_STATUS, &link_status);
+		if (link_status == GL_FALSE) {
+			glDeleteProgram(program);
+			return 0u;
+		}
+
+		return program;
+
+	}
+
+	void SaveProgramBinary(GLuint program, fs::path const& path) {
+
+		GLint bin_len = 0;
+		glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &bin_len);
+		if (bin_len <= 0) {
+			return;
+		}
+
+		GLenum bin_fmt = 0;
+		std::vector<std::byte> bytes(bin_len);
+		GLsizei written = 0;
+		glGetProgramBinary(program, bin_len, &written, &bin_fmt, bytes.data());
+		if (written <= 0) {
+			return;
+		}
+
+		std::unique_lock<std::mutex> cache_lock(s_pipeline_cache_mutex);
+		auto temporary = path;
+		temporary += std::format(".tmp-{:x}", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+		{
+			std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+			output.write(reinterpret_cast<char const*>(&bin_fmt), sizeof(GLenum));
+			output.write(reinterpret_cast<char const*>(bytes.data()), written);
+			if (!output) {
+				return;
+			}
+		}
+		std::error_code error;
+		fs::remove(path, error);
+		error.clear();
+		fs::rename(temporary, path, error);
+		if (error) {
+			fs::remove(temporary);
+		}
+	}
+//
+//	GLenum ToGLShaderType(EShLanguage stage) noexcept {
+//		switch (stage) {	
+//		case EShLangVertex:			return GL_VERTEX_SHADER;
+//		case EShLangTessControl:	return GL_TESS_CONTROL_SHADER;
+//		case EShLangTessEvaluation:	return GL_TESS_EVALUATION_SHADER;
+//		case EShLangGeometry:		return GL_GEOMETRY_SHADER;
+//		case EShLangFragment:		return GL_FRAGMENT_SHADER;
+//		case EShLangCompute:		return GL_COMPUTE_SHADER;
+//		case EShLangTask:			return GL_TASK_SHADER_NV;
+//		case EShLangMesh:			return GL_MESH_SHADER_NV;
+//		default:					return 0;
+//		}
+//	}
+//
+//	GLuint CompileOpenGLDialect(
+//		Backend::LogicalDevice const& ld,
+//		std::string_view src,
+//		ShaderCompilationOptions const& options,
+//		std::string_view entry,
+//		EShLanguage stage
+//	) {
+//
+//		GLuint program;
+//		char const* raw_src = src.data();
+//		GLenum gl_stage = ToGLShaderType(stage);
+//
+//		if (GL_ARB_separate_shader_objects) {
+//
+//			program = glCreateShaderProgramv(gl_stage, 1u, &raw_src);
+//
+//			if (!program) {
+//#if defined(NDEBUG)
+//				throw std::runtime_error("CreateBuffer(): Calling glCreateShaderProgramv() but failed");
+//#else
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glCreateShaderProgramv() but failed, OpenGL reports {}", glGetError())
+//				);
+//#endif // defined(NDEBUG)
+//			}
+//
+//		}
+//		else {
+//
+//			GLuint shader = glCreateShader(gl_stage);
+//			if (!shader) {
+//#if defined(NDEBUG)
+//				throw std::runtime_error("CreateBuffer(): Calling glCreateShader() but failed");
+//#else
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glCreateShader() but failed, OpenGL reports {}", glGetError())
+//				);
+//#endif // defined(NDEBUG)
+//			}
+//
+//			glCompileShader(shader);
+//			GLint compiled = 0u;
+//			glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+//			if (!compiled) {
+//				GLint log_len;
+//				glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_len);
+//				std::string log(log_len + 1, 0u);
+//				glGetShaderInfoLog(shader, log_len, nullptr, log.data());
+//				glDeleteShader(shader);
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glCompileShader() but failed, OpenGL reports: {}", log)
+//				);
+//			}
+//
+//			program = glCreateProgram();
+//			if (!program) {
+//				glDeleteShader(shader);
+//#if defined(NDEBUG)
+//				throw std::runtime_error("CreateBuffer(): Calling glCreateProgram() but failed");
+//#else
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glCreateProgram() but failed, OpenGL reports {}", glGetError())
+//				);
+//#endif // defined(NDEBUG)
+//			}
+//
+//			glProgramParameteri(program, GL_PROGRAM_SEPARABLE, GL_TRUE);
+//			glAttachShader(program, shader);
+//			glLinkProgram(program);
+//
+//			GLint link_status = 0u;
+//			glGetProgramiv(program, GL_LINK_STATUS, &link_status);
+//			if (!link_status) {
+//				GLint log_len;
+//				glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_len);
+//				std::string log(log_len + 1, 0u);
+//				glGetProgramInfoLog(program, log_len, nullptr, log.data());
+//
+//				glDetachShader(program, shader);
+//				glDeleteProgram(program);
+//				glDeleteShader(shader);
+//
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glLinkProgram() but failed, OpenGL reports: {}", log)
+//				);
+//
+//			}
+//
+//			glDetachShader(program, shader);
+//			glDeleteShader(shader);
+//
+//		}
+//
+//		return program;
+//
+//	}
+//
+//	std::uint32_t ShadingVersion() noexcept {
+//
+//		auto ver = reinterpret_cast<char const*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
+//
+//		if (!ver) {
+//			return 100u;
+//		}
+//
+//		while (*ver && (*ver < '0' || *ver > '9')) {
+//			++ver;
+//		}
+//		if (!*ver) {
+//			return 100u;
+//		}
+//
+//		std::uint32_t major = 0;
+//		while (*ver >= '0' && *ver <= '9') {
+//			major = major * 10 + (*ver - '0');
+//			++ver;
+//		}
+//
+//		if (*ver != '.') {
+//			return 100u;
+//		}
+//		++ver;
+//
+//		std::uint32_t minor = 0;
+//		while (*ver >= '0' && *ver <= '9') {
+//			minor = minor * 10 + (*ver - '0');
+//			++ver;
+//		}
+//
+//		return major * 100 + minor;
+//
+//	}
+//
+//	GLuint CompileVulkanDialect(
+//		Backend::LogicalDevice const& ld, 
+//		std::string_view src, 
+//		ShaderCompilationOptions const& options, 
+//		std::string_view entry, 
+//		EShLanguage stage,
+//		int version
+//	) {
+//		shader::InitializeGlslang();
+//		glslang::TShader shader(stage);
+//
+//		std::string preamble;
+//		auto macro_lines = options.macro_defs |
+//			std::views::transform(
+//				[](auto const& macro) {
+//					auto const& [name, value] = macro;
+//					if (value.empty()) {
+//						return std::format("#define {}\n", name);
+//					}
+//					else {
+//						return std::format("#define {} {}\n", name, value);
+//					}
+//				}
+//			);
+//
+//		for (auto const& line : macro_lines) {
+//			preamble += line;
+//		}
+//
+//		if (!preamble.empty()) {
+//			shader.setPreamble(preamble.c_str());
+//		}
+//
+//		std::array shader_strings = { src.data() };
+//		shader.setStrings(shader_strings.data(), static_cast<int>(shader_strings.size()));
+//
+//		shader.setEnvInput(glslang::EShSourceGlsl, stage, glslang::EShClient::EShClientVulkan, version);
+//#if !defined(_NDEBUG)
+//		shader.setDebugInfo(true);
+//#endif // !defined(_NDEBUG)
+//
+//		// TODO: better environment setting based on target platform
+//
+//		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_2);
+//		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
+//
+//		shader.setEntryPoint(entry.data());
+//
+//		EShMessages messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules | EShMsgDefault);
+//		if (!shader.parse(shader::GlslangResourceLimits(), 100, false, messages)) {
+//			throw std::runtime_error(
+//				std::format(
+//					"CompileVulkanDialect(): Calling glslang::TShader::parse() but failed, compiler reports: {}", 
+//					shader.getInfoLog()
+//				)
+//			);
+//		}
+//
+//		glslang::TProgram program;
+//		program.addShader(&shader);
+//
+//		if (!program.link(messages)) {
+//			throw std::runtime_error(
+//				std::format(
+//					"CompileVulkanDialect(): Calling glslang::TProgram::link() but failed, linker reports: {}", 
+//					program.getInfoLog()
+//				)
+//			);
+//		}
+//
+//		std::vector<std::uint32_t> spirv;
+//#if !defined(_NDEBUG)
+//		glslang::SpvOptions spv_options = {
+//			.generateDebugInfo = true,
+//			.stripDebugInfo = false,
+//			.disableOptimizer = true,
+//			.optimizeSize = false,
+//			.disassemble = true,
+//			.validate = true,
+//			.emitNonSemanticShaderDebugInfo = true,
+//			.emitNonSemanticShaderDebugSource = true
+//		};
+//#else
+//		glslang::SpvOptions spv_options = {
+//			.generateDebugInfo = false,
+//			.stripDebugInfo = true,
+//			.disableOptimizer = false,
+//			.optimizeSize = true,
+//			.disassemble = false,
+//			.validate = false,
+//			.emitNonSemanticShaderDebugInfo = false,
+//			.emitNonSemanticShaderDebugSource = false,
+//		};
+//#endif // !defined(_NDEBUG)
+//
+//		glslang::TIntermediate* intermediate = program.getIntermediate(stage);
+//		glslang::GlslangToSpv(*intermediate, spirv, &spv_options);
+//
+//		spirv_cross::CompilerGLSL compiler(std::move(spirv));
+//
+//#if defined(__linux__)
+//		bool is_es = std::holds_alternative<Backend::Instance::EGL>(ld->gl_handle);
+//#endif // defined(__linux__)
+//
+//		compiler.set_common_options(
+//			{
+//				.version = ShadingVersion(),
+//				.es = 
+//#if defined(_WIN32)
+//					false,
+//#elif defined(__linux__)
+//					is_es
+//#elif defined(__ANDROID__)
+//					true,
+//#endif defined(_WIN32)
+//#if defined(NDEBUG)
+//				.force_temporary = false,
+//#else
+//				.force_temporary = true,
+//#endif // defined(NDEBUG)
+//				.emit_push_constant_as_uniform_buffer = true,
+//				.emit_line_directives =
+//#if defined(NDEBUG)
+//					false,
+//#else
+//					true,
+//#endif // defined(NDEBUG)
+//				.force_zero_initialized_variables =
+//#if defined(NDEBUG)
+//					false,
+//#else
+//					true,
+//#endif // defined(NDEBUG)
+//				.vertex = {
+//					true, // Vulkan [0,w] → OpenGL [-w,w]
+//					false,
+//					true
+//				},
+//#if defined(_WIN32)
+//				.fragment = {
+//					spirv_cross::CompilerGLSL::Options::Precision::DontCare,
+//					spirv_cross::CompilerGLSL::Options::Precision::DontCare
+//				}
+//#elif defined(__linux__)
+//				.fragment = {
+//					is_es ? spirv_cross::CompilerGLSL::Options::Precision::Mediump : spirv_cross::CompilerGLSL::Options::Precision::DontCare,
+//					is_es ? spirv_cross::CompilerGLSL::Options::Precision::Highp : spirv_cross::CompilerGLSL::Options::Precision::DontCare
+//				}
+//#elif defined(__ANDROID__)
+//				.fragment = {}
+//#endif defined(_WIN32)
+//			}
+//		);
+//
+//		return CompileOpenGLDialect(ld, compiler.compile(), options, entry, stage);
+//
+//	}
+//
+//	GLuint CompileGLSL(Backend::LogicalDevice const& ld, std::string_view src, ShaderCompilationOptions const& options, std::string_view entry) {
+//
+//		auto&& [stage, dialect, version, rcmd_sm_ver, use_16bit_types] = shader::ParseGLSLShader(src);		
+//
+//		switch (dialect) {
+//		case glslang::EShClient::EShClientVulkan:
+//			return CompileVulkanDialect(ld, src, options, entry, *stage, version);
+//		case glslang::EShClient::EShClientOpenGL:
+//			return CompileOpenGLDialect(ld, src, options, entry, *stage);
+//		default:
+//			throw std::runtime_error("CompileGLSL(): Calling ParseGLSLShader() but unable to parse GLSL dialect");
+//		}
+//
+//	}
+//
+//	GLuint CompileHLSL(Backend::LogicalDevice const& ld, std::string_view src, ShaderCompilationOptions const& options, std::string_view entry) {
+//
+//		auto&& [tp_str, _] = shader::DetectTargetProfile(src);
+//		std::wstring_view profile(tp_str);
+//
+//		if (profile.empty()) {
+//			throw std::runtime_error("CompileHLSL(): Calling DetectTargetProfile() but empty profile returned");
+//		}
+//
+//		EShLanguage stage;
+//		if (profile.find(L"vs_") == 0)
+//			stage = EShLangVertex;
+//		else if (profile.find(L"ps_") == 0)
+//			stage = EShLangFragment;
+//		else if (profile.find(L"cs_") == 0)
+//			stage = EShLangCompute;
+//		else if (profile.find(L"gs_") == 0)
+//			stage = EShLangGeometry;
+//		else if (profile.find(L"ds_") == 0)          // domain shader (tessellation evaluation)
+//			stage = EShLangTessEvaluation;
+//		else if (profile.find(L"hs_") == 0)          // hull shader (tessellation control)
+//			stage = EShLangTessControl;
+//		else if (profile.find(L"as_") == 0)          // amplification shader (task)
+//			stage = EShLangTask;
+//		else if (profile.find(L"ms_") == 0)          // mesh shader
+//			stage = EShLangMesh;
+//		else
+//			throw std::runtime_error("CompileHLSL(): Unsupported or unknown HLSL shader stage");
+//
+//		shader::InitializeGlslang();
+//		
+//		glslang::TShader shader(stage);
+//
+//		std::array shader_strings = { src.data() };
+//
+//		shader.setStrings(shader_strings.data(), static_cast<int>(shader_strings.size()));
+//		shader.setEnvInput(glslang::EShSourceHlsl, stage, glslang::EShClientOpenGL, ShadingVersion());
+//
+//		shader.setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+//		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+//
+//		shader.setEntryPoint(entry.data());
+//
+//		EShMessages messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgDefault);
+//		if (!shader.parse(shader::GlslangResourceLimits(), 100, false, messages)) {
+//			throw std::runtime_error(std::format("Calling glslang::TShader::parse() but failed, compiler reports: {}", shader.getInfoLog()));
+//		}
+//
+//		glslang::TProgram program;
+//		program.addShader(&shader);
+//
+//		if (!program.link(messages)) {
+//			throw std::runtime_error(std::format("Calling glslang::TProgram::link() but failed, linker reports: {}", program.getInfoLog()));
+//		}
+//
+//		std::vector<std::uint32_t> spirv;
+//#if !defined(_NDEBUG)
+//		glslang::SpvOptions spv_options = {
+//			.generateDebugInfo = true,
+//			.stripDebugInfo = false,
+//			.disableOptimizer = true,
+//			.optimizeSize = false,
+//			.disassemble = true,
+//			.validate = true,
+//			.emitNonSemanticShaderDebugInfo = true,
+//			.emitNonSemanticShaderDebugSource = true
+//		};
+//#else
+//		glslang::SpvOptions spv_options = {
+//			.generateDebugInfo = false,
+//			.stripDebugInfo = true,
+//			.disableOptimizer = false,
+//			.optimizeSize = true,
+//			.disassemble = false,
+//			.validate = false,
+//			.emitNonSemanticShaderDebugInfo = false,
+//			.emitNonSemanticShaderDebugSource = false,
+//		};
+//#endif // !defined(_NDEBUG)
+//
+//		glslang::TIntermediate* intermediate = program.getIntermediate(stage);
+//		glslang::GlslangToSpv(*intermediate, spirv, &spv_options);
+//
+//		if (GLAD_GL_ARB_gl_spirv) {
+//
+//			GLuint gl_shader = glCreateShader(ToGLShaderType(stage));
+//			if (!gl_shader) {
+//#if defined(NDEBUG)
+//				throw std::runtime_error("CompileHLSL(): Calling glCreateShader() but failed");
+//#else
+//				throw std::runtime_error(
+//					std::format("CompileHLSL(): Calling glCreateShader() but failed, OpenGL reports {}", glGetError())
+//				);
+//#endif // defined(NDEBUG)
+//			}
+//
+//			glShaderBinary(1u, &gl_shader, GL_SHADER_BINARY_FORMAT_SPIR_V_ARB, spirv.data(), static_cast<GLsizei>(spirv.size() * sizeof(std::uint32_t)));
+//			glSpecializeShaderARB(gl_shader, entry.data(), 0u, nullptr, nullptr);
+//
+//			GLint status = 0u;
+//			glGetShaderiv(gl_shader, GL_COMPILE_STATUS, &status);
+//			if (!status) {
+//				GLint log_len;
+//				glGetShaderiv(gl_shader, GL_INFO_LOG_LENGTH, &log_len);
+//				std::string log(log_len + 1, 0u);
+//				glGetShaderInfoLog(gl_shader, log_len, nullptr, log.data());
+//				glDeleteShader(gl_shader);
+//				throw std::runtime_error(
+//					std::format("CompileHLSL(): Calling glSpecializeShaderARB() but failed, OpenGL reports {}", log)
+//				);
+//			}
+//
+//			GLuint gl_program = glCreateProgram();
+//			if (!gl_program) {
+//				glDeleteShader(gl_shader);
+//#if defined(NDEBUG)
+//				throw std::runtime_error("CreateBuffer(): Calling glCreateProgram() but failed");
+//#else
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glCreateProgram() but failed, OpenGL reports {}", glGetError())
+//				);
+//#endif // defined(NDEBUG)
+//			}
+//
+//			glProgramParameteri(gl_program, GL_PROGRAM_SEPARABLE, GL_TRUE);
+//			glAttachShader(gl_program, gl_shader);
+//			glLinkProgram(gl_program);
+//
+//			GLint link_status = 0u;
+//			glGetProgramiv(gl_program, GL_LINK_STATUS, &link_status);
+//			if (!link_status) {
+//				GLint log_len;
+//				glGetProgramiv(gl_program, GL_INFO_LOG_LENGTH, &log_len);
+//				std::string log(log_len + 1, 0u);
+//				glGetProgramInfoLog(gl_program, log_len, nullptr, log.data());
+//
+//				glDetachShader(gl_program, gl_shader);
+//				glDeleteProgram(gl_program);
+//				glDeleteShader(gl_shader);
+//
+//				throw std::runtime_error(
+//					std::format("CreateBuffer(): Calling glLinkProgram() but failed, OpenGL reports: {}", log)
+//				);
+//
+//			}
+//
+//			glDetachShader(gl_program, gl_shader);
+//			glDeleteShader(gl_shader);
+//
+//			return gl_program;
+//
+//		}
+//
+//		spirv_cross::CompilerGLSL compiler(std::move(spirv));
+//
+//#if defined(__linux__)
+//		bool is_es = std::holds_alternative<Backend::Instance::EGL>(ld->gl_handle);
+//#endif // defined(__linux__)
+//
+//		compiler.set_common_options(
+//			{
+//				.version = ShadingVersion(),
+//				.es =
+//#if defined(_WIN32)
+//					false,
+//#elif defined(__linux__)
+//					is_es
+//#elif defined(__ANDROID__)
+//					true,
+//#endif defined(_WIN32)
+//#if defined(NDEBUG)
+//				.force_temporary = false,
+//#else
+//				.force_temporary = true,
+//#endif // defined(NDEBUG)
+//				.emit_push_constant_as_uniform_buffer = true,
+//				.emit_line_directives =
+//#if defined(NDEBUG)
+//					false,
+//#else
+//					true,
+//#endif // defined(NDEBUG)
+//				.force_zero_initialized_variables =
+//#if defined(NDEBUG)
+//					false,
+//#else
+//					true,
+//#endif // defined(NDEBUG)
+//				.vertex = {
+//					true, // Vulkan [0,w] → OpenGL [-w,w]
+//					false,
+//					true
+//				},
+//#if defined(_WIN32)
+//				.fragment = {
+//					spirv_cross::CompilerGLSL::Options::Precision::DontCare,
+//					spirv_cross::CompilerGLSL::Options::Precision::DontCare
+//				}
+//#elif defined(__linux__)
+//				.fragment = {
+//					is_es ? spirv_cross::CompilerGLSL::Options::Precision::Mediump : spirv_cross::CompilerGLSL::Options::Precision::DontCare,
+//					is_es ? spirv_cross::CompilerGLSL::Options::Precision::Highp : spirv_cross::CompilerGLSL::Options::Precision::DontCare
+//				}
+//#elif defined(__ANDROID__)
+//				.fragment = {}
+//#endif defined(_WIN32)
+//			}
+//		);
+//
+//		return CompileOpenGLDialect(ld, compiler.compile(), options, entry, stage);
+//
+//	}
+
 }
 
 namespace fyuu_rhi::opengl {
 
-	std::shared_ptr<GLuint> Backend::CreateBuffer(Backend::Dummy, std::size_t size_in_bytes, ResourceFlags const& flags) {
+	std::shared_ptr<Backend::GLResource> Backend::CreateBuffer(Backend::LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 
-		static thread_local std::array<std::byte, 1024 * sizeof(GLuint)> fixed_buffer;
-		static thread_local std::pmr::monotonic_buffer_resource fixed_upstream(
-			fixed_buffer.data(), fixed_buffer.size(),
-			std::pmr::new_delete_resource()
-		);
+		std::pmr::polymorphic_allocator<Backend::GLResource> pmr_alloc(&s_obj_pool);
 
-		static thread_local std::pmr::unsynchronized_pool_resource pool(&fixed_upstream);
-		static thread_local std::pmr::polymorphic_allocator<GLuint> pmr_alloc(&pool);
+		GLuint buf = 0u;
+		GLbitfield buffer_flags = ExtractBufferFlags(flags);
 
-		auto buf = pmr_alloc.new_object<GLuint>(0u);
-		glCreateBuffers(1u, buf);
-		glNamedBufferStorage(*buf, size_in_bytes, nullptr, ExtractBufferFlags(flags));
-
-		std::shared_ptr<GLuint> shared_buf(
-			buf,
-			[](GLuint* buf) {
-				glDeleteBuffers(1u, buf);
-				pmr_alloc.delete_object(buf);
+		if (GLAD_GL_ARB_direct_state_access) {
+			// modern OpenGL
+			glCreateBuffers(1u, &buf);
+			if (!buf) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateBuffer(): Calling glCreateBuffers() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateBuffer(): Calling glCreateBuffers() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
 			}
-		);
+			glNamedBufferStorage(buf, size_in_bytes, nullptr, buffer_flags);
+		}
+		else {
+			// Fallback for older OpenGL versions - create buffer and bind to set storage
 
-		return shared_buf;
+			glGenBuffers(1, &buf);
+			if (!buf) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateBuffer(): Calling glGenBuffers() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateBuffer(): Calling glGenBuffers() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
+			}
+
+			GLenum bind_target = GL_COPY_READ_BUFFER;
+			if (buffer_flags & GL_ARRAY_BUFFER) {
+				bind_target = GL_ARRAY_BUFFER;
+			}
+			else if (buffer_flags & GL_ELEMENT_ARRAY_BUFFER) {
+				bind_target = GL_ELEMENT_ARRAY_BUFFER;
+			}
+			else if (buffer_flags & GL_UNIFORM_BUFFER) {
+				bind_target = GL_UNIFORM_BUFFER;
+			}
+			else if (buffer_flags & GL_SHADER_STORAGE_BUFFER) {
+				bind_target = GL_SHADER_STORAGE_BUFFER;
+			}
+			else if (buffer_flags & GL_TEXTURE_BUFFER) {
+				bind_target = GL_TEXTURE_BUFFER;
+			}
+			else if (buffer_flags & GL_DRAW_INDIRECT_BUFFER) {
+				bind_target = GL_DRAW_INDIRECT_BUFFER;
+			}
+			else {
+				bind_target = GL_COPY_WRITE_BUFFER;
+			}
+
+			glBindBuffer(bind_target, buf);
+			if (GLAD_GL_ARB_buffer_storage) {
+				glBufferStorage(bind_target, size_in_bytes, nullptr, buffer_flags);
+			}
+			else {
+				// very old OpenGL fallback
+
+				GLenum usage = GL_STATIC_DRAW;
+				if (buffer_flags & GL_DYNAMIC_STORAGE_BIT) {
+					usage = GL_DYNAMIC_DRAW;
+				}
+				glBufferData(bind_target, size_in_bytes, nullptr, usage);
+			}
+
+			glBindBuffer(bind_target, 0);
+
+		}
+
+		return std::allocate_shared<Backend::GLResource>(pmr_alloc, buf, Backend::GLResource::Type::Buffer);
 
 	}
 
-	std::shared_ptr<GLuint> Backend::CreateTexture(Dummy, std::size_t width, std::size_t height, std::size_t depth_arr_layers, std::size_t mip_lvl_cnt, ResourceFlags const& flags) {
-		
-		static thread_local std::array<std::byte, 1024 * sizeof(GLuint)> fixed_buffer;
-		static thread_local std::pmr::monotonic_buffer_resource fixed_upstream(
-			fixed_buffer.data(), fixed_buffer.size(),
-			std::pmr::new_delete_resource()
-		);
-
-		static thread_local std::pmr::unsynchronized_pool_resource pool(&fixed_upstream);
-		static thread_local std::pmr::polymorphic_allocator<GLuint> pmr_alloc(&pool);
+	std::shared_ptr<Backend::GLResource> Backend::CreateTexture(Backend::LogicalDevice const& ld, std::size_t width, std::size_t height, std::size_t depth_arr_layers, std::size_t mip_lvl_cnt, ResourceFlags const& flags) {
+	
+		std::pmr::polymorphic_allocator<Backend::GLResource> pmr_alloc(&s_obj_pool);
 
 		GLsizei sample_cnt = ExtractSampleCount(flags);
 		GLenum target = ExtractTextureTarget(flags, depth_arr_layers, sample_cnt);
@@ -274,73 +1207,561 @@ namespace fyuu_rhi::opengl {
 			throw std::invalid_argument("Multisample textures must have mip_lvl_cnt == 1");
 		}
 
-		auto tex = pmr_alloc.new_object<GLuint>(0u);
-		glCreateTextures(target, 1u, tex);
-		
-		switch (target) {
-		case GL_TEXTURE_1D:
-			glTextureStorage1D(*tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format, static_cast<GLsizei>(width));
-			break;
-		case GL_TEXTURE_1D_ARRAY:
-			glTextureStorage2D(
-				*tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(depth_arr_layers)
-			);
-			break;
-		case GL_TEXTURE_2D:
-			glTextureStorage2D(
-				*tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(height)
-			);
-			break;
-		case GL_TEXTURE_2D_ARRAY:
-			glTextureStorage3D(
-				*tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
-			);
-			break;
-		case GL_TEXTURE_2D_MULTISAMPLE:
-			glTextureStorage2DMultisample(
-				*tex, sample_cnt, internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_TRUE
-			);
-			break;
-		case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
-			glTextureStorage3DMultisample(
-				*tex, sample_cnt, internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-				static_cast<GLsizei>(depth_arr_layers), GL_TRUE
-			);
-			break;
-		case GL_TEXTURE_3D:
-			glTextureStorage3D(
-				*tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
-				static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
-			);
-			break;
-		default:
-			glDeleteTextures(1u, tex);
-			throw std::runtime_error("Unsupported texture target");
-		}
+		GLuint tex = 0u;
 
-		glTextureParameteri(*tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTextureParameteri(*tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTextureParameteri(*tex, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTextureParameteri(*tex, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		if (target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY) {
-			glTextureParameteri(*tex, GL_TEXTURE_WRAP_R, GL_REPEAT);
-		}
-
-		std::shared_ptr<GLuint> shared_tex(
-			tex,
-			[](GLuint* tex) {
-				glDeleteTextures(1u, tex);
-				pmr_alloc.delete_object(tex);
+		if (GLAD_GL_ARB_direct_state_access) {
+			// modern OpenGL 
+			glCreateTextures(target, 1u, &tex);
+			if (!tex) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateTexture(): Calling glCreateTextures() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateTexture(): Calling glCreateTextures() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
 			}
-		);
-		return shared_tex;
+
+			switch (target) {
+			case GL_TEXTURE_1D:
+				glTextureStorage1D(tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format, static_cast<GLsizei>(width));
+				break;
+			case GL_TEXTURE_1D_ARRAY:
+				glTextureStorage2D(
+					tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			case GL_TEXTURE_2D:
+				glTextureStorage2D(
+					tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height)
+				);
+				break;
+			case GL_TEXTURE_2D_ARRAY:
+				glTextureStorage3D(
+					tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			case GL_TEXTURE_2D_MULTISAMPLE:
+				glTextureStorage2DMultisample(
+					tex, sample_cnt, internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_TRUE
+				);
+				break;
+			case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+				glTextureStorage3DMultisample(
+					tex, sample_cnt, internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+					static_cast<GLsizei>(depth_arr_layers), GL_TRUE
+				);
+				break;
+			case GL_TEXTURE_3D:
+				glTextureStorage3D(
+					tex, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			default:
+				glDeleteTextures(1u, &tex);
+				throw std::runtime_error("Unsupported texture target");
+			}
+		}
+		else {
+			// Fallback for older OpenGL versions - create texture and bind to set storage
+			glGenTextures(1, &tex);
+			if (!tex) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateTexture(): Calling glGenTextures() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateTexture(): Calling glGenTextures() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
+			}
+			glBindTexture(target, tex);
+			switch (target) {
+			case GL_TEXTURE_1D:
+				glTexStorage1D(target, static_cast<GLsizei>(mip_lvl_cnt), internal_format, static_cast<GLsizei>(width));
+				break;
+			case GL_TEXTURE_1D_ARRAY:
+				glTexStorage2D(
+					target, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			case GL_TEXTURE_2D:
+				glTexStorage2D(
+					target, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height)
+				);
+				break;
+			case GL_TEXTURE_2D_ARRAY:
+				glTexStorage3D(
+					target, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			case GL_TEXTURE_2D_MULTISAMPLE:
+				glTexStorage2DMultisample(
+					target, sample_cnt, internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_TRUE
+				);
+				break;
+			case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+				glTexStorage3DMultisample(
+					target, sample_cnt, internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+					static_cast<GLsizei>(depth_arr_layers), GL_TRUE
+				);
+				break;
+			case GL_TEXTURE_3D:
+				glTexStorage3D(
+					target, static_cast<GLsizei>(mip_lvl_cnt), internal_format,
+					static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth_arr_layers)
+				);
+				break;
+			default:
+				glDeleteTextures(1, &tex);
+				throw std::runtime_error("Unsupported texture target");
+			}
+			glBindTexture(target, 0);
+
+		}
+
+		auto SetParam = [&](GLenum pname, GLint value) {
+			if (GLAD_GL_ARB_direct_state_access)
+				glTextureParameteri(tex, pname, value);
+			else {
+				glTexParameteri(target, pname, value);
+			}
+			};
+
+		SetParam(GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		SetParam(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		SetParam(GL_TEXTURE_WRAP_S, GL_REPEAT);
+		SetParam(GL_TEXTURE_WRAP_T, GL_REPEAT);
+		if (target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY || target == GL_TEXTURE_1D_ARRAY) {
+			SetParam(GL_TEXTURE_WRAP_R, GL_REPEAT);
+		}
+
+		glBindTexture(target, 0);
+
+		return std::allocate_shared<Backend::GLResource>(pmr_alloc, tex, Backend::GLResource::Type::Texture);
 
 	}
 
+	Backend::View Backend::CreateTextureView(Backend::LogicalDevice const& ld, std::shared_ptr<GLResource> const& res, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
+		
+		if (!res || res->type != Backend::GLResource::Type::Texture) {
+			throw std::invalid_argument("CreateTextureView(): source is not a texture");
+		}
+
+		if (!GLAD_GL_ARB_texture_view) {
+			throw std::runtime_error("CreateTextureView(): Texture views not supported on this version of OpenGL");
+		}
+
+		GLuint view = 0u;
+		glGenTextures(1u, &view);
+
+		if (!view) {
+#if defined(NDEBUG)
+			throw std::runtime_error("CreateTextureView(): Calling glGenTextures() but failed");
+#else
+			throw std::runtime_error(
+				std::format("CreateTextureView(): Calling glGenTextures() but failed, OpenGL reports {}", glGetError())
+			);
+#endif // defined(NDEBUG)
+		}
+
+		GLenum view_target = ExtractTextureViewTarget(flags);
+		GLenum internal_format = ExtractInternalFormat(flags);
+
+		glTextureView(
+			view, view_target, res->impl, internal_format,
+			static_cast<GLuint>(base_mip_lvl), static_cast<GLuint>(mip_lvl_cnt),
+			static_cast<GLuint>(base_arr_layer), static_cast<GLuint>(arr_layer_cnt)
+		);
+
+		std::pmr::polymorphic_allocator<Backend::GLTextureView> pmr_alloc(&s_obj_pool);
+
+		return { std::allocate_shared<Backend::GLTextureView>(pmr_alloc, view) };
+			
+	}
+
+	Backend::View Backend::CreateBufferView(Backend::LogicalDevice const& ld, std::shared_ptr<GLResource> const& res, std::size_t offset, std::size_t range, ResourceFlags const& flags) {
+		
+		if (!res || res->type != Backend::GLResource::Type::Buffer) {
+			throw std::invalid_argument("CreateBufferView(): source resource is not a buffer");
+		}
+
+		static constexpr GLenum target = GL_TEXTURE_BUFFER;
+		if (!GLAD_GL_ARB_texture_buffer_object) {
+			throw std::runtime_error("CreateBufferView(): GL_ARB_texture_buffer_object is not supported");
+		}
+		GLuint view = 0;
+		if (GLAD_GL_ARB_direct_state_access) glCreateTextures(target, 1u, &view);
+		else glGenTextures(1, &view);
+		if (!view) {
+			throw std::runtime_error("CreateBufferView(): Failed to create texture buffer view");
+		}
+		GLenum internal_format = ExtractInternalFormat(flags);
+		if (GLAD_GL_ARB_direct_state_access) {
+			if (GLAD_GL_ARB_texture_buffer_range && (offset != 0u || range != 0u)) {
+				glTextureBufferRange(view, internal_format, res->impl, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(range));
+			}
+			else {
+				glTextureBuffer(view, internal_format, res->impl);
+			}
+		}
+		else {
+			glBindTexture(target, view);
+			if (GLAD_GL_ARB_texture_buffer_range && (offset != 0u || range != 0u)) {
+				glTexBufferRange(target, internal_format, res->impl, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(range));
+			}
+			else {
+				glTexBuffer(target, internal_format, res->impl);
+			}
+			glBindTexture(target, 0u);
+		}
+		std::pmr::polymorphic_allocator<Backend::GLBufferView> pmr_alloc(&s_obj_pool);
+		return {
+			std::allocate_shared<Backend::GLBufferView>(
+				pmr_alloc,
+				view,
+				GLAD_GL_ARB_texture_buffer_range ? std::nullopt : std::optional(offset),
+				GLAD_GL_ARB_texture_buffer_range ? std::nullopt : std::optional(range)
+			)
+		};
+
+	}
+
+	Backend::Sampler Backend::CreateSampler(Backend::LogicalDevice const& ld, SamplerDescriptor const& descriptor) {
+
+		if (!GLAD_GL_ARB_sampler_objects) {
+			throw std::runtime_error("CreateSampler(): Sampler objects are not supported on this version of OpenGL");
+		}
+
+		GLuint sampler = 0;
+
+		if (GLAD_GL_ARB_direct_state_access) {
+			glCreateSamplers(1, &sampler);
+			if (!sampler) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateSampler(): Calling glCreateSamplers() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateSampler(): Calling glCreateSamplers() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
+			}
+		}
+		else {
+			glGenSamplers(1, &sampler);
+			if (!sampler) {
+#if defined(NDEBUG)
+				throw std::runtime_error("CreateSampler(): Calling glGenSamplers() but failed");
+#else
+				throw std::runtime_error(
+					std::format("CreateSampler(): Calling glGenSamplers() but failed, OpenGL reports {}", glGetError())
+				);
+#endif // defined(NDEBUG)
+			}
+		}
+
+		glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, MapAddressMode(descriptor.address_mode_u));
+		glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, MapAddressMode(descriptor.address_mode_v));
+		glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, MapAddressMode(descriptor.address_mode_w));
+
+		glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, MapFilterMode(descriptor.mag_filter));
+
+		GLenum min_filter;
+		switch (descriptor.min_filter) {
+		case FilterMode::Nearest:
+			min_filter = (descriptor.mipmap_filter == MipmapFilterMode::Nearest)
+				? GL_NEAREST_MIPMAP_NEAREST
+				: GL_NEAREST_MIPMAP_LINEAR;
+			break;
+		case FilterMode::Linear:
+			min_filter = (descriptor.mipmap_filter == MipmapFilterMode::Nearest)
+				? GL_LINEAR_MIPMAP_NEAREST
+				: GL_LINEAR_MIPMAP_LINEAR;
+			break;
+		default:
+			min_filter = GL_LINEAR_MIPMAP_LINEAR;
+		}
+		glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, min_filter);
+
+		if (descriptor.max_anisotropy > 1u && GLAD_GL_ARB_texture_filter_anisotropic) {
+			glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY, static_cast<GLfloat>(descriptor.max_anisotropy));
+		}
+
+		GLenum compare_func = MapCompare(descriptor.compare_function);
+
+		if (compare_func != GL_NONE) {
+			glSamplerParameteri(sampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+			glSamplerParameteri(sampler, GL_TEXTURE_COMPARE_FUNC, compare_func);
+		}
+		else {
+			glSamplerParameteri(sampler, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+		}
+
+		glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, descriptor.min_lod);
+		glSamplerParameterf(sampler, GL_TEXTURE_MAX_LOD, descriptor.max_lod);
+
+		std::array border_color = { 0.0f, 0.0f, 0.0f, 0.0f };
+		glSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, border_color.data());
+
+		std::pmr::polymorphic_allocator<Backend::GLSampler> pmr_alloc(&s_obj_pool);
+		return std::allocate_shared<Backend::GLSampler>(pmr_alloc, sampler);
+
+	}
+
+	Backend::Pipeline Backend::CreateGraphicsPipeline(
+		Backend::LogicalDevice const& ld,
+		GraphicsPipelineDescriptor const& descriptor
+	) {
+		(void)ld;
+		auto shader_target = SelectOpenGLShaderTarget();
+		slang::TargetDesc target{ .format = shader_target.format };
+		target.profile = shader::SlangGlobalSession()->findProfile(shader_target.profile.data());
+		shader::SlangProgram slang_program(
+			target,
+			descriptor.program,
+			GetOpenGLCacheTag(shader_target.cache_name)
+		);
+
+		for (auto const& binding : slang_program.Interface().bindings) {
+			if (binding.space != 0) {
+				throw std::invalid_argument("OpenGL pipeline resource bindings must use space 0");
+			}
+		}
+		if (!slang_program.Interface().push_constants.empty()) {
+			throw std::invalid_argument("OpenGL pipelines do not support push constants");
+		}
+
+		bool has_vertex_stage = false;
+		std::uint32_t stage_mask = 0;
+		for (auto const& entry : slang_program.EntryPoints()) {
+			MapPipelineStage(entry.stage);
+			if (
+				shader_target.essl_version &&
+				shader_target.essl_version < 320 &&
+				entry.stage != PipelineStage::Vertex &&
+				entry.stage != PipelineStage::Fragment
+			) {
+				throw std::invalid_argument(
+					"OpenGL ES 3.0 and 3.1 graphics pipelines support only vertex and fragment stages"
+				);
+			}
+			auto stage_bit = 1u << static_cast<std::uint32_t>(entry.stage);
+			if (stage_mask & stage_bit) {
+				throw std::invalid_argument("An OpenGL graphics pipeline cannot contain duplicate stages");
+			}
+			stage_mask |= stage_bit;
+			has_vertex_stage |= entry.stage == PipelineStage::Vertex;
+		}
+		if (!has_vertex_stage) {
+			throw std::invalid_argument("OpenGL graphics pipeline has no vertex entry point");
+		}
+
+		auto cache_path = GetPipelineCachePath(slang_program, shader_target.cache_name);
+		GLuint program = LoadProgramBinary(cache_path);
+		if (!program) {
+			program = glCreateProgram();
+			if (!program) {
+				throw std::runtime_error("Failed to create an OpenGL pipeline program");
+			}
+			if (SupportsProgramBinary()) {
+				glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+			}
+
+			std::vector<GLuint> stages;
+			stages.reserve(slang_program.EntryPoints().size());
+			try {
+				for (auto const& entry : slang_program.EntryPoints()) {
+					auto stage = CompilePipelineStage(entry, shader_target.essl_version);
+					stages.push_back(stage);
+					glAttachShader(program, stage);
+				}
+				glLinkProgram(program);
+				GLint linked = GL_FALSE;
+				glGetProgramiv(program, GL_LINK_STATUS, &linked);
+				if (linked == GL_FALSE) {
+					throw std::runtime_error(
+						std::format("Failed to link OpenGL graphics pipeline: {}", GetProgramInfoLog(program))
+					);
+				}
+			}
+			catch (...) {
+				for (auto stage : stages) {
+					glDetachShader(program, stage);
+					glDeleteShader(stage);
+				}
+				glDeleteProgram(program);
+				throw;
+			}
+			for (auto stage : stages) {
+				glDetachShader(program, stage);
+				glDeleteShader(stage);
+			}
+			if (SupportsProgramBinary()) {
+				SaveProgramBinary(program, cache_path);
+			}
+		}
+
+		std::pmr::polymorphic_allocator<Backend::GLPipeline> pmr_alloc(&s_obj_pool);
+		return std::allocate_shared<Backend::GLPipeline>(
+			pmr_alloc,
+			program,
+			std::vector<VertexBufferLayout>(descriptor.vertex.buffers.begin(), descriptor.vertex.buffers.end()),
+			std::vector<VertexAttribute>(descriptor.vertex.attributes.begin(), descriptor.vertex.attributes.end()),
+			descriptor.primitive,
+			descriptor.rasterization,
+			descriptor.multisample,
+			descriptor.depth_stencil,
+			std::vector<ColorTargetState>(descriptor.color_targets.begin(), descriptor.color_targets.end()),
+			MakePipelineBindingMetadata(slang_program.Interface())
+		);
+	}
+
+	Backend::PipelineResourceGroup Backend::CreatePipelineResourceGroup(
+		Backend::LogicalDevice const& ld,
+		Backend::Pipeline const& pipeline,
+		std::uint32_t space,
+		std::span<NativePipelineResourceBinding<Backend> const> bindings
+	) {
+		(void)ld;
+		if (!pipeline) {
+			throw std::invalid_argument("Cannot create an OpenGL resource group for an empty pipeline");
+		}
+
+		return MakePipelineResourceGroup<Backend>(pipeline->bindings, space, bindings);
+	}
+
+	//Backend::Shader Backend::CreateShader(Backend::LogicalDevice const& ld, std::string_view src, ShaderCompilationOptions const& options, std::string_view entry) {
+	//	
+	//	std::pmr::polymorphic_allocator<Backend::GLShader> pmr_alloc(&s_obj_pool);
+	//	shader::ShaderCacheKey key{ src, options, entry };
+	//	std::uint64_t hash = key.Hash();
+	//	fs::path cache_path = cache::GetCacheFilePath(std::format("gl_shader_{}.bin", hash));
+
+	//	if (GLuint program = LoadCache(cache_path)) {
+	//		LOG_INFO(std::format("CreateShader(): Shader cache hit for hash {:016x}", hash));
+	//		return std::allocate_shared<Backend::GLShader>(pmr_alloc, program);
+	//	}
+	//	
+	//	LOG_INFO(std::format("CreateShader(): Shader cache miss, compiling shader hash {:016x}", hash));
+
+	//	shader::Language lang = shader::DetectLanguage(src);
+	//	GLuint program;
+	//	switch (lang) {
+	//	case shader::Language::HLSL:
+	//		program = CompileHLSL(ld, src, options, entry);
+	//		break;
+	//	case shader::Language::GLSL:
+	//		program = CompileGLSL(ld, src, options, entry);
+	//		//case shader::Language::WGSL:
+	//		//	return CompileWGSL(src, options, entry);
+	//		break;
+	//	default:
+	//		try {
+	//			program = CompileHLSL(ld, src, options, entry);
+	//		}
+	//		catch (std::exception const&) {
+	//			LOG_WARNING("CreateShader(): Compiling as HLSL but failed, trying to do as GLSL");
+	//			try {
+	//				program = CompileGLSL(ld, src, options, entry);
+	//			}
+	//			catch (std::exception const&) {
+	//				//LOG_WARNING("CreateShader(): Compiling as GLSL but failed, trying to do as WGSL");
+	//				//try {
+	//				//	return CompileWGSL(src, options, entry);
+	//				//}
+	//				//catch (std::exception const&) {
+	//				//	throw std::invalid_argument("CreateShader(): Unsupported shader language or compilation failed");
+	//				//}
+	//				throw std::invalid_argument("CreateShader(): Unsupported shader language or compilation failed");
+	//			}
+	//		}
+	//	}
+
+	//	auto shader = std::allocate_shared<Backend::GLShader>(pmr_alloc, program);
+
+	//	if (GLAD_GL_ARB_get_program_binary) {
+
+	//		static std::mutex save_mutex;
+	//		static std::deque<std::pair<std::shared_ptr<Backend::GLShader>, fs::path>> pending_saves;
+	//		static std::condition_variable save_cv;
+
+	//		static std::jthread save_thread(
+	//			[ld](std::stop_token token) {
+
+	//				Backend::ShareContextOnThisThread(*ld);
+
+	//				std::optional<std::pair<std::shared_ptr<Backend::GLShader>, fs::path>> item;
+
+	//				while (!token.stop_requested()) {
+
+
+	//					{
+	//						std::unique_lock<std::mutex> lock(save_mutex);
+	//						save_cv.wait(lock, [&token]() { return !pending_saves.empty() || token.stop_requested(); });
+	//						if (!pending_saves.empty()) {
+	//							item.emplace(pending_saves.front());
+	//							pending_saves.pop_front();
+	//						}
+	//					}
+
+	//					try {
+	//						SaveProgramBinary(item->first, item->second);
+	//					}
+	//					catch (std::exception const& ex) {
+	//						LOG_WARNING(std::format("Background cache thread: {}", ex.what()));
+	//					}
+
+	//				}
+
+	//				while (!pending_saves.empty()) {
+	//					{					
+	//						std::unique_lock<std::mutex> lock(save_mutex);
+	//						item.emplace(pending_saves.front());
+	//						pending_saves.pop_front();
+	//					}
+	//					try {
+	//						SaveProgramBinary(item->first, item->second);
+	//					}
+	//					catch (std::exception const& ex) {
+	//						LOG_WARNING(std::format("Background cache thread: {}", ex.what()));
+	//					}
+	//				}
+
+
+	//			}
+	//		);
+
+	//		static boost::scope::defer_guard notifier(
+	//			[]() {
+	//				save_thread.get_stop_source().request_stop();
+	//				save_cv.notify_one();
+	//			}
+	//		);
+
+	//		{
+	//			std::lock_guard<std::mutex> lock(save_mutex);
+	//			pending_saves.emplace_back(shader, cache_path);
+	//		}
+
+	//		save_cv.notify_one();
+
+	//	}
+
+	//	return shader;
+
+
+	//}
+
 }
+
 #endif // !defined(__APPLE__)

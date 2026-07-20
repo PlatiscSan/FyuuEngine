@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 project(FyuuRHI VERSION 1.0.0 LANGUAGES CXX)
 
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -16,9 +18,7 @@ find_package(Boost REQUIRED COMPONENTS any)
 find_package(Boost REQUIRED COMPONENTS asio)
 find_package(Boost REQUIRED COMPONENTS lockfree)
 find_package(Boost REQUIRED COMPONENTS pool)
-
-# concurrent
-find_package(concurrentqueue CONFIG REQUIRED)
+find_package(Boost REQUIRED COMPONENTS hash2)
 
 # parallel programming
 find_package(PkgConfig REQUIRED)
@@ -51,9 +51,10 @@ find_package(spirv_cross_cpp CONFIG REQUIRED)
 find_package(spirv_cross_c CONFIG REQUIRED)
 find_package(glslang CONFIG REQUIRED)
 find_package(directx-dxc CONFIG REQUIRED)
+find_package(slang CONFIG REQUIRED)
 
-# hash
-find_package(xxHash CONFIG REQUIRED)
+# serialization
+find_package(nlohmann_json CONFIG REQUIRED)
 
 if(WIN32)
 	# DirectX
@@ -118,6 +119,7 @@ target_compile_definitions(${PROJECT_NAME}
 		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 		PIX_ENABLED
 		#BOOST_USE_MODULES
+		__STDC_WANT_LIB_EXT1__
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -134,8 +136,7 @@ target_link_libraries(${PROJECT_NAME}
 		Boost::asio
 		Boost::lockfree
 		Boost::pool
-		#-- concurrent
-		concurrentqueue::concurrentqueue
+		Boost::hash2
 		# parallel programming
 		TBB::tbb TBB::tbbmalloc TBB::tbbbind_2_5 TBB::tbbmalloc_proxy
 		#-- Vulkan
@@ -144,7 +145,6 @@ target_link_libraries(${PROJECT_NAME}
 		#-- webgpu Dawn
 		dawn::webgpu_dawn
 		#-- shader compiler
-		glslang::glslang glslang::glslang-default-resource-limits glslang::SPIRV
 		spirv-cross-core
 		spirv-cross-glsl
 		spirv-cross-hlsl
@@ -152,19 +152,18 @@ target_link_libraries(${PROJECT_NAME}
 		spirv-cross-reflect
 		spirv-cross-util
 		spirv-cross-cpp
-		#-- hash
-		xxHash::xxhash
+		slang::gfx slang::slang slang::slang-llvm slang::slang-glslang
+		#-- serialization
+		nlohmann_json::nlohmann_json
 )
 
 if(WIN32)
 	target_link_libraries(${PROJECT_NAME}
 		PUBLIC			
 			WIL::WIL
-			D3DCompiler
 			Microsoft::DirectX-Headers
 			Microsoft::DirectXTK12
 			GPUOpen::D3D12MemoryAllocator
-			Microsoft::DirectXShaderCompiler
 
 			WinPixEventRuntime
 

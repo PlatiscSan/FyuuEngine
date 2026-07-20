@@ -4,6 +4,7 @@ module;
 #include <stdexcept>
 #include <memory>
 #include <random>
+#include <array>
 #include <vector>
 #include <unordered_set>
 #include <unordered_map>
@@ -16,14 +17,27 @@ export module fyuu_rhi:vulkan_queue_allocator;
 #if defined(__cpp_lib_modules)
 import std;
 #endif
-import :command_types;
 
 namespace fyuu_rhi::vulkan {
+
+	export enum class CommandQueueType : std::uint8_t {
+		Graphics,
+		Compute,
+		Copy,
+	};
+
+	export enum class QueuePriority : std::uint8_t {
+		High,
+		Medium,
+		Low
+	};
+
 	export struct CommandQueueInfo {
-		CommandObjectType type;
+		CommandQueueType type;
 		std::optional<std::uint32_t> family;
 		std::uint32_t num_available;
 	};
+
 }
 
 namespace {
@@ -71,17 +85,17 @@ namespace fyuu_rhi::vulkan {
 	};
 
 	// Handle that automatically releases the queue index when the last reference is destroyed.
-	export class QueueHandle final {
+	export class ManagedQueue final {
 	private:
 		std::shared_ptr<QueueSet> m_queue_set;
 		std::uint32_t m_index;
 
 	public:
-		QueueHandle(std::shared_ptr<QueueSet> const& queue_set, std::uint32_t index) noexcept
+		ManagedQueue(std::shared_ptr<QueueSet> const& queue_set, std::uint32_t index) noexcept
 			: m_queue_set(queue_set), m_index(index) {
 		}
 
-		~QueueHandle() {
+		~ManagedQueue() {
 			if (m_queue_set) {
 				std::lock_guard<std::mutex> lock(m_queue_set->allocated_queue_mutex);
 				m_queue_set->allocated_queue.erase(m_index);
@@ -89,11 +103,11 @@ namespace fyuu_rhi::vulkan {
 		}
 
 		// Disable copying (move-only or shared ownership via shared_ptr)
-		QueueHandle(QueueHandle const&) = delete;
-		QueueHandle& operator=(QueueHandle const&) = delete;
+		ManagedQueue(ManagedQueue const&) = delete;
+		ManagedQueue& operator=(ManagedQueue const&) = delete;
 
-		QueueHandle(QueueHandle&&) noexcept = default;
-		QueueHandle& operator=(QueueHandle&&) noexcept = default;
+		ManagedQueue(ManagedQueue&&) noexcept = default;
+		ManagedQueue& operator=(ManagedQueue&&) noexcept = default;
 
 		[[nodiscard]] std::uint32_t GetFamily() const noexcept {
 			return *m_queue_set->info.family;
@@ -110,9 +124,9 @@ namespace fyuu_rhi::vulkan {
 
 	export class QueueAllocator {
 	private:
-		std::unordered_map<CommandObjectType, std::shared_ptr<QueueSet>> m_queue_sets;
+		std::unordered_map<CommandQueueType, std::shared_ptr<QueueSet>> m_queue_sets;
 
-		static std::shared_ptr<QueueSet> MakeQueueSet(CommandObjectType type, std::span<CommandQueueInfo const> queue_infos, QueueOptions const& init_options);
+		static std::shared_ptr<QueueSet> MakeQueueSet(CommandQueueType type, std::span<CommandQueueInfo const> queue_infos, QueueOptions const& init_options);
 
 	public:
 		// Constructor: builds the three queue sets by selecting appropriate families from the given list.
@@ -122,13 +136,13 @@ namespace fyuu_rhi::vulkan {
 		);
 
 		// Allocate a queue of the given type with the requested priority.
-		// Returns a shared_ptr to a QueueHandle that automatically frees the index.
-		[[nodiscard]] std::shared_ptr<QueueHandle> Allocate(CommandObjectType type, QueuePriority priority);
+		// Returns a shared_ptr to a ManagedQueue that automatically frees the index.
+		[[nodiscard]] std::shared_ptr<ManagedQueue> Allocate(CommandQueueType type, QueuePriority priority);
 
 		// Query properties of the underlying queue set for a given type.
-		[[nodiscard]] std::uint32_t GetFamily(CommandObjectType type) const noexcept;
-		[[nodiscard]] std::uint32_t GetTotalQueue(CommandObjectType type) const noexcept;
-		[[nodiscard]] std::span<float const> GetPriorities(CommandObjectType type) const noexcept;
+		[[nodiscard]] std::uint32_t GetFamily(CommandQueueType type) const noexcept;
+		[[nodiscard]] std::uint32_t GetTotalQueue(CommandQueueType type) const noexcept;
+		[[nodiscard]] std::span<float const> GetPriorities(CommandQueueType type) const noexcept;
 	};
 
 }
@@ -138,9 +152,7 @@ namespace fyuu_rhi::vulkan {
 	QueueOptions QueueOptions::PlatformDefault() {
 
 		QueueOptions options;
-
 #if defined(_WIN32) || defined(__linux__)
-
 		// high performance desktop GPUs
 		options.max_graphics = 3u;
 		options.max_compute = 3u;
@@ -152,9 +164,7 @@ namespace fyuu_rhi::vulkan {
 		options.graphics_priorities = priorities;
 		options.compute_priorities = priorities;
 		options.copy_priorities = priorities;
-
 #elif defined(__ANDROID__)
-
 		// mobile and embedded devices
 		options.max_graphics = 1u;
 		options.max_compute = 1u;
@@ -165,13 +175,11 @@ namespace fyuu_rhi::vulkan {
 		options.graphics_priorities = priorities;
 		options.compute_priorities = priorities;
 		options.copy_priorities = priorities;
-
 #endif // defined(_WIN32) || defined(__linux__)
-
 		return options;
 	}
 
-	std::shared_ptr<QueueSet> QueueAllocator::MakeQueueSet(CommandObjectType type, std::span<CommandQueueInfo const> queue_infos, QueueOptions const& init_options) {
+	std::shared_ptr<QueueSet> QueueAllocator::MakeQueueSet(CommandQueueType type, std::span<CommandQueueInfo const> queue_infos, QueueOptions const& init_options) {
 		std::vector<std::uint32_t> indices;
 	
 		auto length = static_cast<std::uint32_t>(queue_infos.size());
@@ -197,21 +205,21 @@ namespace fyuu_rhi::vulkan {
 
 		// Cap the number of queues to use according to init_options and assign priorities.
 		switch (type) {
-		case fyuu_rhi::CommandObjectType::Copy:
+		case CommandQueueType::Copy:
 			queue_info.num_available = std::min(
 				queue_info.num_available,
 				static_cast<std::uint32_t>(init_options.max_copy)
 			);
 			return std::make_shared<QueueSet>(queue_info, init_options.copy_priorities.subspan(0, queue_info.num_available));
 
-		case fyuu_rhi::CommandObjectType::Compute:
+		case CommandQueueType::Compute:
 			queue_info.num_available = std::min(
 				queue_info.num_available,
 				static_cast<std::uint32_t>(init_options.max_compute)
 			);
 			return std::make_shared<QueueSet>(queue_info, init_options.compute_priorities.subspan(0, queue_info.num_available));
 
-		case fyuu_rhi::CommandObjectType::Graphics:
+		case CommandQueueType::Graphics:
 		default:
 			queue_info.num_available = std::min(
 				queue_info.num_available,
@@ -227,15 +235,15 @@ namespace fyuu_rhi::vulkan {
 	) : m_queue_sets(
 		[queue_infos, &init_options]() {
 			decltype(m_queue_sets) queue_sets;
-			queue_sets.emplace(CommandObjectType::Graphics, MakeQueueSet(CommandObjectType::Graphics, queue_infos, init_options));
-			queue_sets.emplace(CommandObjectType::Compute, MakeQueueSet(CommandObjectType::Compute, queue_infos, init_options));
-			queue_sets.emplace(CommandObjectType::Copy, MakeQueueSet(CommandObjectType::Copy, queue_infos, init_options));
+			queue_sets.emplace(CommandQueueType::Graphics, MakeQueueSet(CommandQueueType::Graphics, queue_infos, init_options));
+			queue_sets.emplace(CommandQueueType::Compute, MakeQueueSet(CommandQueueType::Compute, queue_infos, init_options));
+			queue_sets.emplace(CommandQueueType::Copy, MakeQueueSet(CommandQueueType::Copy, queue_infos, init_options));
 			return queue_sets;
 		}()) {
 
 	}
 
-	std::shared_ptr<QueueHandle> QueueAllocator::Allocate(CommandObjectType type, QueuePriority priority) {
+	std::shared_ptr<ManagedQueue> QueueAllocator::Allocate(CommandQueueType type, QueuePriority priority) {
 
 		auto& queue_set = m_queue_sets.at(type);
 		auto const& priorities = queue_set->priorities;
@@ -267,23 +275,23 @@ namespace fyuu_rhi::vulkan {
 			if (allocated_queue.find(index) == allocated_queue.end()) {
 				allocated_queue.insert(index);
 				// Return a shared_ptr to a handle that keeps the queue_set alive
-				return std::make_shared<QueueHandle>(queue_set, index);
+				return std::make_shared<ManagedQueue>(queue_set, index);
 			}
 		}
 
 		throw std::runtime_error("No queue available");
 	}
 
-	std::uint32_t QueueAllocator::GetFamily(CommandObjectType type) const noexcept {
+	std::uint32_t QueueAllocator::GetFamily(CommandQueueType type) const noexcept {
 		auto& qs = m_queue_sets.at(type);
 		return *qs->info.family;
 	}
 
-	std::uint32_t QueueAllocator::GetTotalQueue(CommandObjectType type) const noexcept {
+	std::uint32_t QueueAllocator::GetTotalQueue(CommandQueueType type) const noexcept {
 		return m_queue_sets.at(type)->info.num_available;
 	}
 
-	std::span<float const> QueueAllocator::GetPriorities(CommandObjectType type) const noexcept {
+	std::span<float const> QueueAllocator::GetPriorities(CommandQueueType type) const noexcept {
 		return m_queue_sets.at(type)->priorities;
 	}
 

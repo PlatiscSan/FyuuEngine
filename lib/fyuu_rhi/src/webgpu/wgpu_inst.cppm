@@ -14,6 +14,7 @@ module;
 #include <wayland-util.h>
 #elif defined(__ANDROID__)
 #include <android/native_window.h>
+#include <android/android_native_app_glue.h>
 #endif // defined(_WIN32)
 #include <webgpu/webgpu_cpp.h>
 module fyuu_rhi:webgpu_instance;
@@ -22,10 +23,22 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :webgpu_traits;
 import :log;
+import :cache_system;
 
 namespace fyuu_rhi::webgpu {
 
-	wgpu::Instance Backend::CreateInstance() {
+	wgpu::Instance Backend::CreateInstance(
+		std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver
+#if defined(__ANDROID__)
+		, android_app* android_app
+#endif // defined(__ANDROID__)
+	) {
+		cache::Initialize(
+			app_name, app_ver, engine_name, engine_ver
+#if defined(__ANDROID__)
+			, android_app
+#endif // defined(__ANDROID__)
+		);
 		wgpu::InstanceDescriptor desc = {};
 		return wgpu::CreateInstance(&desc);
 	}
@@ -44,20 +57,18 @@ namespace fyuu_rhi::webgpu {
 		};
 
 		wgpu::Adapter adapter;
+		auto SetAdapter = [&adapter](wgpu::RequestAdapterStatus status, wgpu::Adapter adapter_, char const* message) {
+			if (status != wgpu::RequestAdapterStatus::Success) {
+				log::Fatal(std::format("Calling RequestAdapter(), WebGPU reported: {}", message), std::source_location::current());
+				return;
+			}
+			adapter = std::move(adapter_);
+		};
 
 		auto future = instance.RequestAdapter(
 			&options,
 			wgpu::CallbackMode::AllowProcessEvents,
-			[&adapter](wgpu::RequestAdapterStatus status, wgpu::Adapter adapter_, char const* message) {
-
-				if (status != wgpu::RequestAdapterStatus::Success) {
-					log::Fatal(std::format("Calling RequestAdapter(), WebGPU reported: {}", message), std::source_location::current());
-					return;
-				}
-
-				adapter = std::move(adapter_);
-
-			}
+			SetAdapter
 		);
 
 		wgpu::WaitStatus status = instance.WaitAny(future, (std::numeric_limits<std::uint64_t>::max)());

@@ -18,24 +18,38 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :d3d12_traits;
 import :d3d12_utility;
-import :d3d12_cache;
+
+namespace {
+
+	using namespace fyuu_rhi::d3d12;
+
+	fyuu_rhi::PhysicalDeviceInfo::Type GetPhysicalDeviceType(DXGI_ADAPTER_DESC1 const& desc) {
+		using Type = fyuu_rhi::PhysicalDeviceInfo::Type;
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) return Type::CPU;
+		if (desc.DedicatedVideoMemory > 0) return Type::DiscreteGPU;
+		return Type::IntegratedGPU;
+	}
+
+	Microsoft::WRL::ComPtr<ID3D12CommandSignature> CreateCommandSignature(ID3D12Device* device, D3D12_INDIRECT_ARGUMENT_TYPE argument_type) {
+		Microsoft::WRL::ComPtr<ID3D12CommandSignature> cmd_sgn;
+		std::array argument_descs = {
+			D3D12_INDIRECT_ARGUMENT_DESC{.Type = argument_type }
+		};
+		D3D12_COMMAND_SIGNATURE_DESC signature{
+			.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS),
+			.NumArgumentDescs = static_cast<UINT>(argument_descs.size()),
+			.pArgumentDescs = argument_descs.data(),
+			.NodeMask = 0u
+		};
+		HRESULT result = device->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&cmd_sgn));
+		ThrowIfFailed(result);
+		return cmd_sgn;
+	}
+}
 
 namespace fyuu_rhi::d3d12 {
 
 	PhysicalDeviceInfo Backend::GetPhysicalDeviceInfo(Microsoft::WRL::ComPtr<IDXGIAdapter1> const& adapter) {
-
-		using Type = PhysicalDeviceInfo::Type;
-		auto GetType = [](DXGI_ADAPTER_DESC1& desc) {
-			if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
-				return Type::CPU;
-			}
-			else if (desc.DedicatedVideoMemory > 0) {
-				return Type::DiscreteGPU;
-			}
-			else {
-				return Type::IntegratedGPU;
-			}
-			};
 
 		DXGI_ADAPTER_DESC1 desc;
 		HRESULT result = adapter->GetDesc1(&desc);
@@ -46,7 +60,7 @@ namespace fyuu_rhi::d3d12 {
 			.vendor_id = desc.VendorId,
 			.device_id = desc.DeviceId,
 			.dedicated_memory = desc.DedicatedVideoMemory,
-			.type = GetType(desc)
+			.type = GetPhysicalDeviceType(desc)
 		};
 
 		return info;
@@ -54,101 +68,30 @@ namespace fyuu_rhi::d3d12 {
 
 	Backend::LogicalDevice Backend::CreateLogicalDevice(Microsoft::WRL::ComPtr<IDXGIAdapter1> const& adapter) {
 
-		Microsoft::WRL::ComPtr<ID3D12Device> dev = [&adapter]() {
-			Microsoft::WRL::ComPtr<ID3D12Device> dev;
-			HRESULT result = D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&dev));
-			ThrowIfFailed(result);
-			return dev;
-			}();
+		Microsoft::WRL::ComPtr<ID3D12Device> dev;
+		HRESULT result = D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&dev));
+		ThrowIfFailed(result);
 
-		std::shared_ptr<DeviceRemovalTracker> rm_tracker = std::make_shared<DeviceRemovalTracker>(dev);
+		DeviceRemovalTracker rm_tracker(dev);
 
-		Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_alloc = [&adapter, &dev]() {
-			
-			Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_alloc;
+		Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_alloc;
+		D3D12MA::ALLOCATOR_DESC allocator_desc = {};
+		allocator_desc.pDevice = dev.Get();
+		allocator_desc.pAdapter = adapter.Get();
+		result = D3D12MA::CreateAllocator(&allocator_desc, &mem_alloc);
+		ThrowIfFailed(result);
 
-			D3D12MA::ALLOCATOR_DESC allocator_desc = {};
-			allocator_desc.pDevice = dev.Get();
-			allocator_desc.pAdapter = adapter.Get();
+		DescriptorAllocator univ_alloc = CreateUniversalViewAllocator(dev.Get());
+		DescriptorAllocator rtv_alloc = CreateRTVAllocator(dev.Get());
+		DescriptorAllocator dsv_alloc = CreateDSVAllocator(dev.Get());
+		DescriptorAllocator sampler_alloc = CreateSamplerAllocator(dev.Get());
 
-			HRESULT result = D3D12MA::CreateAllocator(&allocator_desc, &mem_alloc);
-			ThrowIfFailed(result);
-
-			return mem_alloc;
-
-			}();
-
-		D3D12DescriptorAllocator univ_alloc = CreateUniversalViewAllocator(dev.Get());
-		D3D12DescriptorAllocator rtv_alloc = CreateRTVAllocator(dev.Get());
-		D3D12DescriptorAllocator dsv_alloc = CreateDSVAllocator(dev.Get());
-		D3D12DescriptorAllocator sampler_alloc = CreateSamplerAllocator(dev.Get());
-
-		Microsoft::WRL::ComPtr<ID3D12CommandSignature> multidraw = [&dev]() {
-
-			Microsoft::WRL::ComPtr<ID3D12CommandSignature> cmd_sgn;
-
-			std::array argument_descs = {
-				D3D12_INDIRECT_ARGUMENT_DESC{.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW }
-			};
-			D3D12_COMMAND_SIGNATURE_DESC signature{
-				.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS),
-				.NumArgumentDescs = static_cast<UINT>(argument_descs.size()),
-				.pArgumentDescs = argument_descs.data(),
-				.NodeMask = 0
-			};
-
-			HRESULT result = dev->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&cmd_sgn));
-			ThrowIfFailed(result);
-
-			return cmd_sgn;
-
-			}();
-
-		Microsoft::WRL::ComPtr<ID3D12CommandSignature> multidraw_indexed = [&dev]() {
-
-			Microsoft::WRL::ComPtr<ID3D12CommandSignature> cmd_sgn;
-
-			std::array argument_descs = {
-				D3D12_INDIRECT_ARGUMENT_DESC{.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED }
-			};
-			D3D12_COMMAND_SIGNATURE_DESC signature{
-				.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS),
-				.NumArgumentDescs = static_cast<UINT>(argument_descs.size()),
-				.pArgumentDescs = argument_descs.data(),
-				.NodeMask = 0
-			};
-
-			HRESULT result = dev->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&cmd_sgn));
-			ThrowIfFailed(result);
-
-			return cmd_sgn;
-
-			}();
-
-		Microsoft::WRL::ComPtr<ID3D12CommandSignature> dispatch_indirect = [&dev]() {
-
-			Microsoft::WRL::ComPtr<ID3D12CommandSignature> cmd_sgn;
-
-			std::array argument_descs = {
-				D3D12_INDIRECT_ARGUMENT_DESC{.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH }
-			};
-			D3D12_COMMAND_SIGNATURE_DESC signature{
-				.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS),
-				.NumArgumentDescs = static_cast<UINT>(argument_descs.size()),
-				.pArgumentDescs = argument_descs.data(),
-				.NodeMask = 0
-			};
-
-			HRESULT result = dev->CreateCommandSignature(&signature, nullptr, IID_PPV_ARGS(&cmd_sgn));
-			ThrowIfFailed(result);
-
-			return cmd_sgn;
-
-			}();
-
-		RegisterDevice(dev);
+		Microsoft::WRL::ComPtr<ID3D12CommandSignature> multidraw = CreateCommandSignature(dev.Get(), D3D12_INDIRECT_ARGUMENT_TYPE_DRAW);
+		Microsoft::WRL::ComPtr<ID3D12CommandSignature> multidraw_indexed = CreateCommandSignature(dev.Get(), D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED);
+		Microsoft::WRL::ComPtr<ID3D12CommandSignature> dispatch_indirect = CreateCommandSignature(dev.Get(), D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH);
 
 		return { 
+			adapter,
 			std::move(dev), 
 			std::move(rm_tracker), 
 			std::move(mem_alloc), 

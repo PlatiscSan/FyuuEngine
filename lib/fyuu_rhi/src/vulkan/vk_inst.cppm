@@ -22,6 +22,7 @@ module;
 #include <wayland-util.h>
 #elif defined(__ANDROID__)
 #include <android/native_window.h>
+#include <android/android_native_app_glue.h>
 #endif // defined(_WIN32)
 #include "log.hpp"
 #endif //!defined(__APPLE__)
@@ -34,10 +35,18 @@ import vulkan;
 import :core_types;
 import :log;
 import :vulkan_traits;
+import :cache_system;
 
 namespace {
 
 	using namespace fyuu_rhi;
+
+	std::vector<std::string> ToStrings(std::span<char const* const> strings) {
+		std::vector<std::string> result;
+		result.reserve(strings.size());
+		for (auto string : strings) result.emplace_back(string);
+		return result;
+	}
 
 	vk::Bool32 VKDebugMessager(vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity, vk::DebugUtilsMessageTypeFlagsEXT message_types, vk::DebugUtilsMessengerCallbackDataEXT const* callback_data, void* user_data) {
 
@@ -124,9 +133,14 @@ namespace {
 
 namespace fyuu_rhi::vulkan {
 
-	Backend::Instance Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver) {
+	Backend::Instance Backend::CreateInstance(
+		std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver
+#if defined(__ANDROID__)
+		, android_app* android_app
+#endif // defined(__ANDROID__)
+	) {
 		
-		static vk::DispatchLoaderDynamic dispatcher(vkGetInstanceProcAddr);
+		static vk::detail::DispatchLoaderDynamic dispatcher(vkGetInstanceProcAddr);
 		
 		std::vector<vk::ExtensionProperties> supported_extensions = vk::enumerateInstanceExtensionProperties(nullptr, dispatcher);
 		std::unordered_set<std::string_view> supported_extension_set;
@@ -289,21 +303,23 @@ namespace fyuu_rhi::vulkan {
 			{ nullptr, dispatcher }
 		);
 #endif // defined(NDEBUG)
-		static auto ToString = [](std::span<char const* const> c_str_span) {
-			return c_str_span | std::views::transform([](char const* const s) { return std::string(s); }) | std::ranges::to<std::vector>();
-			};
+		cache::Initialize(
+			app_name, app_ver, engine_name, engine_ver
+#if defined(__ANDROID__)
+			, android_app
+#endif // defined(__ANDROID__)
+		);
 
-		return { dispatcher, ToString(enabled_extensions), std::move(instance), std::move(debug_messenger) };
+		return { dispatcher, ToStrings(enabled_extensions), std::move(instance), std::move(debug_messenger) };
 
 	}
 
 	std::vector<Backend::PhysicalDevice> Backend::EnumeratePhysicalDevices(Backend::Instance const& instance) {
+		auto WrapPhysicalDevice = [&instance](vk::PhysicalDevice phys_dev) -> Backend::PhysicalDevice {
+			return { instance, vk::SharedPhysicalDevice(phys_dev, instance.impl) };
+		};
 		return instance.impl->enumeratePhysicalDevices(instance.dispatcher) |
-			std::ranges::views::transform(
-				[&instance](vk::PhysicalDevice phys_dev) -> Backend::PhysicalDevice {
-					return { instance, vk::SharedPhysicalDevice(phys_dev, instance.impl) };
-				}
-			) |
+			std::ranges::views::transform(WrapPhysicalDevice) |
 			std::ranges::to<std::vector<Backend::PhysicalDevice>>();
 	}
 

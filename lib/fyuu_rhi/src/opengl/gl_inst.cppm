@@ -10,15 +10,21 @@ module;
 #include <boost/scope/defer.hpp>
 #if !defined(__APPLE__)
 #include "glad/glad.h"
+
 #if defined(_WIN32)
 #include "glad/glad_wgl.h"
-#else
-#if defined(__linux__)
+
+#elif defined(__linux__)
 #include "glad/glad_glx.h"
-#endif // defined(__linux__)
 #include "glad/glad_egl.h"
+
+#elif defined(__ANDROID__)
+#include "glad/glad_egl.h"
+#include <android/native_window.h>
+#include <android/android_native_app_glue.h>
+
 #endif // defined(_WIN32)
-#endif //!defined(__APPLE__)
+#endif // !defined(__APPLE__)
 module fyuu_rhi:opengl_instance;
 #if !defined(__APPLE__)
 #if defined(__cpp_lib_modules)
@@ -26,10 +32,24 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :opengl_traits;
 import :log;
+import :cache_system;
 
 namespace {
 
 	using namespace fyuu_rhi;
+
+#if defined(_WIN32)
+	thread_local HGLRC s_thread_context = nullptr;
+	thread_local HDC s_thread_device_context = nullptr;
+
+	void CleanupSharedContext() {
+		if (s_thread_context) {
+			wglMakeCurrent(nullptr, nullptr);
+			wglDeleteContext(s_thread_context);
+			s_thread_context = nullptr;
+		}
+	}
+#endif // defined(_WIN32)
 
 	void GLDebugMessager(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, GLchar const* message, void const* user_param) {
 		std::ostringstream msg;
@@ -89,7 +109,7 @@ namespace {
 	void InitializeGL() {
 #if defined(__ANDROID__)
 		if (!gladLoadGLES2(reinterpret_cast<GLADloadfunc>(eglGetProcAddress))) {
-			throw std::runtime_error("Failed to load GLES2 functions");
+			throw std::runtime_error("Failed to load OpenGL ES functions");
 		}
 #else
 		if (!gladLoadGL()) {
@@ -110,7 +130,7 @@ namespace {
 namespace fyuu_rhi::opengl {
 
 #if defined(_WIN32)
-	Backend::Instance Backend::CreateInstance(HWND window_handle) {
+	Backend::Instance Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, HWND window_handle) {
 		HDC dc = GetDC(window_handle);
 		if (!dc) {
 			DWORD ec = GetLastError();
@@ -146,7 +166,7 @@ namespace fyuu_rhi::opengl {
 		return { dc, rc };
 	}
 #elif defined(__linux__)
-	Backend::Instance Backend::CreateInstance(Display* x11_dpy, Window x11_window) {
+	Backend::Instance Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, Display* x11_dpy, Window x11_window) {
 		static int const attribs[] = {
 			GLX_X_RENDERABLE, true,
 			GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
@@ -190,7 +210,7 @@ namespace fyuu_rhi::opengl {
 		InitializeGL();
 		return Instance{ GLX { x11_dpy, x11_window, ctx } };
 	}
-	Backend::Instance Backend::CreateInstance(wl_display* display, wl_surface* surface, std::uint32_t width, std::uint32_t height) {
+	Backend::Instance Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, wl_display* display, wl_surface* surface, std::uint32_t width, std::uint32_t height) {
 		struct wl_egl_window* egl_window = wl_egl_window_create(surface, width, height);
 		if (!egl_window) {
 			throw std::runtime_error("Failed to create wl_egl_window");
@@ -253,7 +273,7 @@ namespace fyuu_rhi::opengl {
 		return Instance{ EGL{ egl_dpy, egl_surface, egl_surface, egl_ctx, config, egl_window } };
 	}
 #elif defined(__ANDROID__)
-	Backend::Instance Backend::CreateInstance(ANativeWindow* window) {
+	Backend::Instance Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, android_app* app) {
 		EGLDisplay egl_dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 		if (egl_dpy == EGL_NO_DISPLAY) {
 			throw std::runtime_error("Failed to get EGL display");
@@ -262,9 +282,13 @@ namespace fyuu_rhi::opengl {
 		if (!eglInitialize(egl_dpy, &major, &minor)) {
 			throw std::runtime_error("Failed to initialize EGL");
 		}
+		if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+			eglTerminate(egl_dpy);
+			throw std::runtime_error("Failed to bind OpenGL ES API");
+		}
 		EGLint config_attribs const [] = {
 			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
 			EGL_RED_SIZE, 8,
 			EGL_GREEN_SIZE, 8,
 			EGL_BLUE_SIZE, 8,
@@ -279,13 +303,13 @@ namespace fyuu_rhi::opengl {
 			eglTerminate(egl_dpy);
 			throw std::runtime_error("Failed to choose EGL config");
 		}
-		EGLSurface egl_surface = eglCreateWindowSurface(egl_dpy, config, window, nullptr);
+		EGLSurface egl_surface = eglCreateWindowSurface(egl_dpy, config, app->window, nullptr);
 		if (egl_surface == EGL_NO_SURFACE) {
 			eglTerminate(egl_dpy);
 			throw std::runtime_error("Failed to create EGL window surface");
 		}
 		EGLint context_attribs const [] = {
-			EGL_CONTEXT_CLIENT_VERSION, 2,
+			EGL_CONTEXT_CLIENT_VERSION, 3,
 			EGL_NONE
 		};
 		EGLContext egl_ctx = eglCreateContext(egl_dpy, config, EGL_NO_CONTEXT, context_attribs);
@@ -301,37 +325,28 @@ namespace fyuu_rhi::opengl {
 			throw std::runtime_error("Failed to make EGL context current");
 		}
 		InitializeGL();
-		return Instance{ EGL{ egl_dpy, egl_surface, egl_surface, egl_ctx, config, window } };
+		cache::Initialize(app_name, app_ver, engine_name, engine_ver, app);
+		return Instance{ EGL{ egl_dpy, egl_surface, egl_surface, egl_ctx, config, app->window } };
 	}
 #endif // defined(_WIN32)
 
 	void Backend::ShareContextOnThisThread(Backend::Instance const& instance) {
 #if defined(_WIN32)
-		thread_local HGLRC tls_rc = nullptr;
-		thread_local HDC tls_dc = nullptr;
-		thread_local boost::scope::defer_guard tls_cleanup(
-			[]() {
-				if (tls_rc) {
-					wglMakeCurrent(nullptr, nullptr);
-					wglDeleteContext(tls_rc);
-					tls_rc = nullptr;
-				}
-			}
-		);
-		if (!tls_rc) {
-			tls_dc = instance.dc;
-			tls_rc = wglCreateContext(tls_dc);
-			if (!tls_rc) {
+		thread_local boost::scope::defer_guard ThreadCleanup(CleanupSharedContext);
+		if (!s_thread_context) {
+			s_thread_device_context = instance.dc;
+			s_thread_context = wglCreateContext(s_thread_device_context);
+			if (!s_thread_context) {
 				DWORD ec = GetLastError();
 				throw std::system_error(ec, std::system_category(), "Failed to create shared GL context");
 			}
-			if (!wglShareLists(instance.rc, tls_rc)) {
+			if (!wglShareLists(instance.rc, s_thread_context)) {
 				DWORD ec = GetLastError();
-				wglDeleteContext(tls_rc);
+				wglDeleteContext(s_thread_context);
 				throw std::system_error(ec, std::system_category(), "Failed to share GL lists");
 			}
 		}
-		if (!wglMakeCurrent(tls_dc, tls_rc)) {
+		if (!wglMakeCurrent(s_thread_device_context, s_thread_context)) {
 			DWORD ec = GetLastError();
 			throw std::system_error(ec, std::system_category(), "Failed to make shared context current");
 		}
@@ -440,5 +455,10 @@ namespace fyuu_rhi::opengl {
 		);
 #endif
 	}
+
+	Backend::PhysicalDevice Backend::EnumeratePhysicalDevices(Backend::Instance const& instance) noexcept {
+		return &instance;
+	}
+
 }
 #endif // !defined(__APPLE__)

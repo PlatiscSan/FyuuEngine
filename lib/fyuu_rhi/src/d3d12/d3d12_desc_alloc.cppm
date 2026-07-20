@@ -4,12 +4,14 @@
 #include <stdexcept>
 #include <memory>
 #include <atomic>
+#include <thread>
 #include <optional>
 #endif
+#include <boost/lockfree/policies.hpp>
+#include <boost/lockfree/queue.hpp>
 #if defined(_WIN32)
 #include <DescriptorHeap.h>
-#endif
-#include <concurrentqueue/moodycamel/concurrentqueue.h>
+#endif // defined(_WIN32)
 export module fyuu_rhi:d3d12_descriptor_allocator;
 #if defined(_WIN32)
 #if defined(__cpp_lib_modules)
@@ -17,41 +19,88 @@ import std;
 #endif
 
 namespace {
-	struct Heap {
-		DirectX::DescriptorHeap impl;
-		moodycamel::ConcurrentQueue<std::size_t> free_indices;
 
-		Heap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::size_t total_descriptors, bool shader_visible)
-			: impl(device, type, shader_visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE, total_descriptors),
-			free_indices() {
-			for (std::size_t i = 0; i < total_descriptors; ++i) {
-				free_indices.enqueue(i);
+	class DescriptorHeap : public DirectX::DescriptorHeap {
+	private:
+		boost::lockfree::queue<std::size_t> m_free_indices;
+
+	public:
+		DescriptorHeap(ID3D12Device* dev, D3D12_DESCRIPTOR_HEAP_TYPE type, std::size_t total_desc, bool shader_visible)
+			: DirectX::DescriptorHeap(dev, type, shader_visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE, total_desc),
+			m_free_indices(total_desc) {
+			for (std::size_t i = 0; i < total_desc; ++i) {
+				m_free_indices.push(i);
 			}
 		}
+
+		std::size_t Acquire() {
+			std::size_t index;
+			std::size_t spin_count = 0;
+			while (!m_free_indices.pop(index)) {
+				if (++spin_count > 100u) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+					spin_count = 0;
+				}
+				else {
+					std::this_thread::yield();
+				}
+			}
+			return index;
+		}
+
+		void Release(std::size_t index) {
+			m_free_indices.push(index);
+		}
 	};
+
 }
 
 namespace fyuu_rhi::d3d12 {
 
-	export class D3D12DescriptorHandle final {
+	export class ManagedDescriptorHandle final {
 	private:
-		std::shared_ptr<Heap> m_heap;
-		std::size_t m_idx;
+		std::shared_ptr<DescriptorHeap> m_heap;
+		std::optional<std::size_t> m_idx;
 		D3D12_CPU_DESCRIPTOR_HANDLE m_cpu;
 		D3D12_GPU_DESCRIPTOR_HANDLE m_gpu;
 
 	public:
-		D3D12DescriptorHandle(std::shared_ptr<Heap> const& heap, std::size_t idx, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE gpu) noexcept
+		ManagedDescriptorHandle(std::shared_ptr<DescriptorHeap> const& heap, std::size_t idx, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE gpu) noexcept
 			: m_heap(heap), m_idx(idx), m_cpu(cpu), m_gpu(gpu) {
 		}
 
-		D3D12DescriptorHandle(std::shared_ptr<Heap> const& heap, std::size_t idx, D3D12_CPU_DESCRIPTOR_HANDLE cpu) noexcept
+		ManagedDescriptorHandle(std::shared_ptr<DescriptorHeap> const& heap, std::size_t idx, D3D12_CPU_DESCRIPTOR_HANDLE cpu) noexcept
 			: m_heap(heap), m_idx(idx), m_cpu(cpu), m_gpu() {
 		}
 
-		~D3D12DescriptorHandle() {
-			if (m_heap) {
-				m_heap->free_indices.enqueue(m_idx);
+		ManagedDescriptorHandle(ManagedDescriptorHandle const&) = delete;
+		ManagedDescriptorHandle& operator=(ManagedDescriptorHandle const&) = delete;
+
+		ManagedDescriptorHandle(ManagedDescriptorHandle&& other) noexcept
+			: m_heap(std::move(other.m_heap)),
+			m_idx(std::move(other.m_idx)),
+			m_cpu(std::exchange(other.m_cpu, {})),
+			m_gpu(std::exchange(other.m_gpu, {})) {
+			m_idx.reset();
+		}
+
+		ManagedDescriptorHandle& operator=(ManagedDescriptorHandle&& other) noexcept {
+			if (this != &other) {
+				if (m_heap && m_idx) {
+					m_heap->Release(*m_idx);
+				}
+				m_heap = std::move(other.m_heap);
+				m_idx = std::move(other.m_idx);
+				m_idx.reset();
+				m_cpu = std::exchange(other.m_cpu, {});
+				m_gpu = std::exchange(other.m_gpu, {});
+			}
+			return *this;
+		}
+
+		~ManagedDescriptorHandle() {
+			if (m_heap && m_idx) {
+				m_heap->Release(*m_idx);
 			}
 		}
 
@@ -64,126 +113,94 @@ namespace fyuu_rhi::d3d12 {
 		}
 	};
 
-	export class D3D12DescriptorAllocator final {
+	export class DescriptorAllocator final {
 	private:
-		std::shared_ptr<Heap> m_heap;
-		std::size_t m_total_descriptors;
+		std::shared_ptr<DescriptorHeap> m_heap;
 
 	public:
-		D3D12DescriptorAllocator(
-			ID3D12Device* device,
+		DescriptorAllocator(
+			ID3D12Device* dev,
 			D3D12_DESCRIPTOR_HEAP_TYPE type,
-			std::size_t total_descriptors,
+			std::size_t total_desc,
 			bool shader_visible
-		) : m_heap(std::make_shared<Heap>(device, type, total_descriptors, shader_visible)),
-			m_total_descriptors(total_descriptors) {
+		) : m_heap(std::make_shared<DescriptorHeap>(dev, type, total_desc, shader_visible)) {
 		}
 
-		D3D12DescriptorAllocator(D3D12DescriptorAllocator const& other) noexcept = default;
-		D3D12DescriptorAllocator(D3D12DescriptorAllocator&& other) noexcept = default;
+		DescriptorAllocator(DescriptorAllocator const& other) noexcept = default;
+		DescriptorAllocator(DescriptorAllocator&& other) noexcept = default;
 
-		std::shared_ptr<D3D12DescriptorHandle> TryAllocate() {
-			std::size_t index;
-			if (m_heap->free_indices.try_dequeue(index)) {
-				D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->impl.GetCpuHandle(index);
-				D3D12_GPU_DESCRIPTOR_HANDLE gpu = {};
-				if (m_heap->impl.Flags() & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) {
-					return std::make_shared<D3D12DescriptorHandle>(m_heap, index, cpu, m_heap->impl.GetGpuHandle(index));
-				}
-				return std::make_shared<D3D12DescriptorHandle>(m_heap, index, cpu);
+		std::shared_ptr<ManagedDescriptorHandle> Allocate() {
+			std::size_t idx = m_heap->Acquire();
+			D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = m_heap->GetCpuHandle(idx);
+			if (m_heap->Flags() & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) {
+				D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = m_heap->GetGpuHandle(idx);
+				return std::make_shared<ManagedDescriptorHandle>(m_heap, idx, cpu_handle, gpu_handle);
 			}
-			return nullptr;
-		}
-
-		std::shared_ptr<D3D12DescriptorHandle> Allocate() {
-			constexpr std::size_t max_spins = 10000u;
-			for (std::size_t spin = 0u; spin < max_spins; ++spin) {
-				auto handle = TryAllocate();
-				if (handle) {
-					return handle;
-				}
-				std::this_thread::yield();
+			else {
+				return std::make_shared<ManagedDescriptorHandle>(m_heap, idx, cpu_handle);
 			}
-			throw std::runtime_error("D3D12DescriptorAllocator::Allocate() failed, no free descriptors");
 		}
 
 		template <std::size_t Count>
-		std::array<std::shared_ptr<D3D12DescriptorHandle>, Count> AllocateBatch() {
-			std::array<std::shared_ptr<D3D12DescriptorHandle>, Count> allocations;
+		std::array<std::shared_ptr<ManagedDescriptorHandle>, Count> AllocateBatch() {
+			std::array<std::shared_ptr<ManagedDescriptorHandle>, Count> allocations;
 			for (std::size_t i = 0; i < Count; ++i) {
 				allocations[i] = Allocate();
 			}
 			return allocations;
 		}
 
-		struct Stats {
-			std::size_t free_count_approx;
-			std::size_t allocated_count;
-			std::size_t total_descriptors;
-		};
-
-		Stats GetStats() const {
-			std::size_t free_approx = m_heap->free_indices.size_approx();
-			return Stats{
-				.free_count_approx = free_approx,
-				.allocated_count = m_total_descriptors - free_approx,
-				.total_descriptors = m_total_descriptors
-			};
-		}
 
 		ID3D12DescriptorHeap* GetNative() const {
-			return m_heap->impl.Heap();
+			return m_heap->Heap();
 		}
 
-		std::size_t GetTotalDescriptorCount() const {
-			return m_total_descriptors;
-		}
 	};
 
-	export inline D3D12DescriptorAllocator CreateUniversalViewAllocator(
-		ID3D12Device* device,
-		std::size_t total_descriptors = 65536u
+	export inline DescriptorAllocator CreateUniversalViewAllocator(
+		ID3D12Device* dev,
+		std::size_t total_desc = 65536u
 	) {
-		return D3D12DescriptorAllocator(
-			device,
+		return DescriptorAllocator(
+			dev,
 			D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-			total_descriptors,
+			total_desc,
 			true
 		);
 	}
 
-	export inline D3D12DescriptorAllocator CreateRTVAllocator(
-		ID3D12Device* device,
-		std::size_t total_descriptors = 2048u
+	export inline DescriptorAllocator CreateRTVAllocator(
+		ID3D12Device* dev,
+		std::size_t total_desc = 2048u
 	)  {
-		return D3D12DescriptorAllocator(
-			device,
+		return DescriptorAllocator(
+			dev,
 			D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-			total_descriptors,
+			total_desc,
 			false
 		);
 	}
 
-	export inline D3D12DescriptorAllocator CreateDSVAllocator(
-		ID3D12Device* device,
-		std::size_t total_descriptors = 2048u
+	export inline DescriptorAllocator CreateDSVAllocator(
+		ID3D12Device* dev,
+		std::size_t total_desc = 2048u
 	) {
-		return D3D12DescriptorAllocator(
-			device,
+		return DescriptorAllocator(
+			dev,
 			D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
-			total_descriptors,
+			total_desc,
 			false
 		);
 	}
 	
-	export inline D3D12DescriptorAllocator CreateSamplerAllocator(
-		ID3D12Device* device,
-		std::size_t total_descriptors = 2048u
+	export inline DescriptorAllocator CreateSamplerAllocator(
+		ID3D12Device* dev,
+		std::size_t total_desc = 2048u
 	) {
-		return D3D12DescriptorAllocator(
-			device,
+		return DescriptorAllocator(
+			dev,
 			D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
-			total_descriptors,
+			total_desc,
 			true
 		);
 	}

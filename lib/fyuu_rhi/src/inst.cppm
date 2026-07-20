@@ -13,7 +13,6 @@ export module fyuu_rhi:instance;
 import std;
 #endif // defined(__cpp_lib_modules)
 import :physical_device;
-import :surface;
 
 namespace fyuu_rhi {
 
@@ -31,22 +30,18 @@ namespace fyuu_rhi {
 		static inline Instance* s_instance;
 
 		template <class... Args>
-		Instance(Args&&... args)
-			: m_impl(Backend::CreateInstance(std::forward<Args>(args)...)) {
+		Instance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, Args&&... args)
+			: m_impl(Backend::CreateInstance(app_name, app_ver, engine_name, engine_ver, std::forward<Args>(args)...)) {
 
 		}
 
 	public:
 		template <class... Args>
-		static void Initialize(Args&&... args) {
-			static Instance instance(std::forward<Args>(args)...);
+		static void Initialize(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver, Args&&... args) {
+			static Instance instance(app_name, app_ver, engine_name, engine_ver, std::forward<Args>(args)...);
 			static std::once_flag init_flag;
-			std::call_once(
-				init_flag,
-				[]() {
-					s_instance = &instance;
-				}
-			);
+			auto SetInstance = [&]() { s_instance = &instance; };
+			std::call_once(init_flag, SetInstance);
 		}
 
 		static Instance* Get() noexcept {
@@ -73,12 +68,9 @@ namespace fyuu_rhi {
 				auto devices = Backend::EnumeratePhysicalDevices(m_impl);
 				std::vector<PhysDev> result;
 				result.reserve(devices.size());
-				std::ranges::transform(
-					devices, std::back_inserter(result),
-					[](auto&& dev) { 
-						return PhysDev{ dev }; 
-					}
-				);
+				for (auto&& dev : devices) {
+					result.emplace_back(dev);
+				}
 				return result;
 
 			}
@@ -88,14 +80,6 @@ namespace fyuu_rhi {
 				return PhysDev{ Backend::EnumeratePhysicalDevices(m_impl) };
 			}
 
-		}
-
-		template <class... PlatformHandles>
-		Surface<Backend> CreateSurface(PlatformHandles&&... platform_handles) {
-			using Ret = decltype(Backend::CreateSurface(m_impl, std::forward<PlatformHandles>(platform_handles)...));
-			static_assert(std::constructible_from<Surface<Backend>, Ret>, 
-				"PhysicalDevice<Backend> must be constructible from physical device returned by EnumeratePhysicalDevices()");
-			return Backend::CreateSurface(m_impl, std::forward<PlatformHandles>(platform_handles)...);
 		}
 
 		void ShareContextOnThisThread() {

@@ -24,6 +24,13 @@ export module fyuu_rhi:core_types;
 import std;
 #endif // defined(__cpp_lib_modules)
 namespace fyuu_rhi {
+	
+	export struct Version {
+		std::uint8_t variant;
+		std::uint8_t major;
+		std::uint8_t minor;
+		std::uint8_t patch;
+	};
 
 	export struct PhysicalDeviceInfo {
 		

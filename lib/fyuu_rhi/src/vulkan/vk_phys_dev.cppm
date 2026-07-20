@@ -21,7 +21,6 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import vulkan;
 import :core_types;
-import :command_types;
 import :vulkan_traits;
 import :vulkan_queue_allocator;
 import :log;
@@ -30,6 +29,24 @@ namespace {
 
 	using namespace fyuu_rhi;
 	using namespace fyuu_rhi::vulkan;
+
+	PhysicalDeviceInfo::Type GetPhysicalDeviceType(vk::PhysicalDeviceProperties const& props) {
+		using Type = PhysicalDeviceInfo::Type;
+		switch (props.deviceType) {
+		case vk::PhysicalDeviceType::eDiscreteGpu: return Type::DiscreteGPU;
+		case vk::PhysicalDeviceType::eIntegratedGpu: return Type::IntegratedGPU;
+		case vk::PhysicalDeviceType::eCpu: return Type::CPU;
+		case vk::PhysicalDeviceType::eVirtualGpu: return Type::Virtual;
+		default: return Type::Unknown;
+		}
+	}
+
+	std::vector<std::string> ToStrings(std::span<char const* const> strings) {
+		std::vector<std::string> result;
+		result.reserve(strings.size());
+		for (auto string : strings) result.emplace_back(string);
+		return result;
+	}
 
 	struct OptionalDeviceExt {
 		char const* device_ext_name;
@@ -132,17 +149,17 @@ namespace {
 			bool is_copy = static_cast<bool>(current_family.queueFlags & vk::QueueFlagBits::eTransfer);
 
 			if (is_graphics && is_compute && is_copy) {
-				queue_infos.push_back({ CommandObjectType::Graphics, i, current_family.queueCount });
+				queue_infos.push_back({ CommandQueueType::Graphics, i, current_family.queueCount });
 				continue;
 			}
 
 			if (is_compute && is_copy) {
-				queue_infos.push_back({ CommandObjectType::Compute, i, current_family.queueCount });
+				queue_infos.push_back({ CommandQueueType::Compute, i, current_family.queueCount });
 				continue;
 			}
 
 			if (is_copy) {
-				queue_infos.push_back({ CommandObjectType::Copy, i, current_family.queueCount });
+				queue_infos.push_back({ CommandQueueType::Copy, i, current_family.queueCount });
 				continue;
 			}
 		}
@@ -156,22 +173,6 @@ namespace {
 namespace fyuu_rhi::vulkan {
 
 	PhysicalDeviceInfo Backend::GetPhysicalDeviceInfo(Backend::PhysicalDevice const& phys_dev) {
-
-		using Type = PhysicalDeviceInfo::Type;
-		auto GetType = [](vk::PhysicalDeviceProperties& props) {
-			switch (props.deviceType) {
-			case vk::PhysicalDeviceType::eDiscreteGpu:
-				return Type::DiscreteGPU;
-			case vk::PhysicalDeviceType::eIntegratedGpu:
-				return Type::IntegratedGPU;
-			case vk::PhysicalDeviceType::eCpu:
-				return Type::CPU;
-			case vk::PhysicalDeviceType::eVirtualGpu:
-				return Type::Virtual;
-			default:
-				return Type::Unknown;
-			}
-			};
 
 		auto&& [instance, phys_dev_impl] = phys_dev;
 
@@ -190,7 +191,7 @@ namespace fyuu_rhi::vulkan {
 			.vendor_id = props.vendorID,
 			.device_id = props.deviceID,
 			.dedicated_memory = dedicated_memory,
-			.type = GetType(props)
+			.type = GetPhysicalDeviceType(props)
 		};
 
 		return info;
@@ -214,6 +215,23 @@ namespace fyuu_rhi::vulkan {
 		InsertSwapChainExtensions(device_extensions, instance.enabled_extensions, enabled_extensions);
 		InsertFutureExtensions(device_extensions, instance.enabled_extensions, enabled_extensions);
 
+		auto properties = phys_dev_impl->getProperties(instance.dispatcher);
+		bool dynamic_rendering_core = properties.apiVersion >= vk::ApiVersion13;
+		bool dynamic_rendering_extension =
+			!dynamic_rendering_core &&
+			device_extensions.contains(vk::KHRDynamicRenderingExtensionName);
+		if (dynamic_rendering_extension) {
+			enabled_extensions.push_back(vk::KHRDynamicRenderingExtensionName);
+		}
+
+		vk::PhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features;
+		vk::PhysicalDeviceFeatures2 supported_features({}, &dynamic_rendering_features);
+		phys_dev_impl->getFeatures2(&supported_features, instance.dispatcher);
+		bool dynamic_rendering_supported =
+			(dynamic_rendering_core || dynamic_rendering_extension) &&
+			dynamic_rendering_features.dynamicRendering;
+		dynamic_rendering_features.dynamicRendering = dynamic_rendering_supported;
+
 		
 		// --------------------------------------------------------------------
 		// Queue creation.
@@ -226,27 +244,27 @@ namespace fyuu_rhi::vulkan {
 		// Graphics queue family.
 		queue_create_infos.emplace_back(
 			vk::DeviceQueueCreateFlags{},
-			queue_alloc.GetFamily(CommandObjectType::Graphics),
-			queue_alloc.GetTotalQueue(CommandObjectType::Graphics),
-			queue_alloc.GetPriorities(CommandObjectType::Graphics).data(),
+			queue_alloc.GetFamily(CommandQueueType::Graphics),
+			queue_alloc.GetTotalQueue(CommandQueueType::Graphics),
+			queue_alloc.GetPriorities(CommandQueueType::Graphics).data(),
 			nullptr
 		);
 
 		// Dedicated compute queue family (if separate from graphics).
 		queue_create_infos.emplace_back(
 			vk::DeviceQueueCreateFlags{},
-			queue_alloc.GetFamily(CommandObjectType::Compute),
-			queue_alloc.GetTotalQueue(CommandObjectType::Compute),
-			queue_alloc.GetPriorities(CommandObjectType::Compute).data(),
+			queue_alloc.GetFamily(CommandQueueType::Compute),
+			queue_alloc.GetTotalQueue(CommandQueueType::Compute),
+			queue_alloc.GetPriorities(CommandQueueType::Compute).data(),
 			nullptr
 		);
 
 		// Dedicated copy/transfer queue family.
 		queue_create_infos.emplace_back(
 			vk::DeviceQueueCreateFlags{},
-			queue_alloc.GetFamily(CommandObjectType::Copy),
-			queue_alloc.GetTotalQueue(CommandObjectType::Copy),
-			queue_alloc.GetPriorities(CommandObjectType::Copy).data(),
+			queue_alloc.GetFamily(CommandQueueType::Copy),
+			queue_alloc.GetTotalQueue(CommandQueueType::Copy),
+			queue_alloc.GetPriorities(CommandQueueType::Copy).data(),
 			nullptr
 		);
 
@@ -256,7 +274,7 @@ namespace fyuu_rhi::vulkan {
 			{},					// pEnabledLayerNames_
 			enabled_extensions,	// pEnabledExtensionNames_
 			nullptr,			// pEnabledFeatures_
-			nullptr				// pNext_
+			dynamic_rendering_supported ? &dynamic_rendering_features : nullptr
 		);
 
 		vk::SharedDevice dev(
@@ -264,41 +282,34 @@ namespace fyuu_rhi::vulkan {
 			{ nullptr, instance.dispatcher }
 		);
 
-		std::shared_ptr<vk::DispatchLoaderDynamic> dev_dispatcher = std::make_shared<vk::DispatchLoaderDynamic>(instance.dispatcher);
+		auto dev_dispatcher = std::make_shared<vk::detail::DispatchLoaderDynamic>(instance.dispatcher);
 		dev_dispatcher->init(*dev);
 
-		std::shared_ptr<std::remove_pointer_t<VmaAllocator>> mem_alloc(
-			[&]() {
-				// Provide VMA with the necessary function pointers.
-				static VmaVulkanFunctions vulkan_functions = {};
-				vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-				vulkan_functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+		// Provide VMA with the necessary function pointers.
+		static VmaVulkanFunctions vulkan_functions = {};
+		vulkan_functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+		vulkan_functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
 
-				VmaAllocatorCreateInfo alloc_info = {};
-				alloc_info.flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;	// Enable memory budget extension.
-				alloc_info.vulkanApiVersion = VK_API_VERSION_1_4;				// Specify Vulkan API version.
-				alloc_info.physicalDevice = *phys_dev_impl;						// Physical device.
-				alloc_info.device = *dev;										// Logical device.
-				alloc_info.instance = *instance.impl;							// Vulkan instance.
-				alloc_info.pVulkanFunctions = &vulkan_functions;				// Function pointers.
+		VmaAllocatorCreateInfo alloc_info = {};
+		alloc_info.flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;	// Enable memory budget extension.
+		alloc_info.vulkanApiVersion = properties.apiVersion;
+		alloc_info.physicalDevice = *phys_dev_impl;						// Physical device.
+		alloc_info.device = *dev;										// Logical device.
+		alloc_info.instance = *instance.impl;							// Vulkan instance.
+		alloc_info.pVulkanFunctions = &vulkan_functions;				// Function pointers.
 
-				VmaAllocator mem_alloc;
-				vmaCreateAllocator(&alloc_info, &mem_alloc);
-				return mem_alloc;
-			}(),
-			[](VmaAllocator alloc) {
-				vmaDestroyAllocator(alloc);
-			}
-		);
+		VmaAllocator mem_alloc_impl;
+		vmaCreateAllocator(&alloc_info, &mem_alloc_impl);
+		if (!mem_alloc_impl) {
+			throw std::runtime_error("CreateLogicalDevice(): Failed to create VMA allocator");
+		}
 
-		static auto ToString = [](std::span<char const* const> c_str_span) {
-			return c_str_span | std::views::transform([](char const* const s) { return std::string(s); }) | std::ranges::to<std::vector>();
-			};
+		auto mem_alloc = std::make_shared<VMAAllocator>(mem_alloc_impl);
 
 		return {
 			phys_dev,
 			std::move(queue_alloc),
-			ToString(enabled_extensions),
+			ToStrings(enabled_extensions),
 			std::move(dev),
 			std::move(dev_dispatcher),
 			std::move(mem_alloc)

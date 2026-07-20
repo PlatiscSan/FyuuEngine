@@ -1,7 +1,11 @@
 module;
 #include <version>
 #if !defined(__cpp_lib_modules)
+#include <string_view>
 #include <concepts>
+#include <vector>
+#include <cstdint>
+#include <span>
 #endif // !defined(__cpp_lib_modules)
 
 export module fyuu_rhi:logical_device;
@@ -9,9 +13,13 @@ export module fyuu_rhi:logical_device;
 import std;
 #endif // defined(__cpp_lib_modules)
 import :resource_types;
-import :command_types;
-import :future;
 import :resource;
+import :view;
+import :sampler_types;
+import :sampler;
+import :pipeline_types;
+import :pipeline;
+import :native_pipeline_binding;
 
 namespace fyuu_rhi {
 
@@ -29,95 +37,87 @@ namespace fyuu_rhi {
 
 		}
 
-		Promise<Backend> CreatePromise() const {
-			using Ret = decltype(Backend::CreatePromise(m_impl));
-			static_assert(std::constructible_from<Promise<Backend>, Ret>,
-				"Promise<Backend> must be constructible from promise returned by CreatePromise()");
-			return Backend::CreatePromise(m_impl);
-		}
-
-		Resource<Backend> CreateBuffer(std::size_t size_in_bytes, ResourceFlags const& flags) const {
+		Resource<Backend> CreateBuffer(std::size_t size_in_bytes, ResourceFlags const& flags) {
 			using Ret = decltype(Backend::CreateBuffer(m_impl, size_in_bytes, flags));
 			static_assert(std::constructible_from<Resource<Backend>, Ret>,
 				"Resource<Backend> must be constructible from buffer returned by CreateBuffer()");
 			return Backend::CreateBuffer(m_impl, size_in_bytes, flags);
 		}
 
-		Resource<Backend> CreateTexture(std::size_t width, std::size_t height, std::size_t depth_arr_layers, std::size_t mip_lvl_cnt, ResourceFlags const& flags) const {
+		Resource<Backend> CreateTexture(std::size_t width, std::size_t height, std::size_t depth_arr_layers, std::size_t mip_lvl_cnt, ResourceFlags const& flags) {
 			using Ret = decltype(Backend::CreateTexture(m_impl, width, height, depth_arr_layers, mip_lvl_cnt, flags));
 			static_assert(std::constructible_from<Resource<Backend>, Ret>,
 				"Resource<Backend> must be constructible from texture returned by CreateTexture()");
 			return Backend::CreateTexture(m_impl, width, height, depth_arr_layers, mip_lvl_cnt, flags);
 		}
 
-		Resource<Backend> CreateBufferView(Resource<Backend> const& buf, std::size_t offset, std::size_t range, ResourceFlags const& flags) const {
+		View<Backend> CreateBufferView(Resource<Backend> const& buf, std::size_t offset, std::size_t range, ResourceFlags const& flags) {
 			using Ret = decltype(Backend::CreateBufferView(m_impl, buf.GetLogicalDevicePassKey().GetImplementation(), offset, range, flags));
-			static_assert(std::constructible_from<Resource<Backend>, Ret>,
-				"Resource<Backend> must be constructible from view returned by CreateBufferView()");
+			static_assert(std::constructible_from<View<Backend>, Ret>,
+				"View<Backend> must be constructible from view returned by CreateBufferView()");
 			return Backend::CreateBufferView(m_impl, buf.GetLogicalDevicePassKey().GetImplementation(), offset, range, flags);
 		}
 
-		Resource<Backend> CreateTextureView(Resource<Backend> const& tex, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) const {
+		View<Backend> CreateTextureView(Resource<Backend> const& tex, std::size_t base_mip_lvl, std::size_t mip_lvl_cnt, std::size_t base_arr_layer, std::size_t arr_layer_cnt, ResourceFlags const& flags) {
 			using Ret = decltype(Backend::CreateTextureView(m_impl, tex.GetLogicalDevicePassKey().GetImplementation(), base_mip_lvl, mip_lvl_cnt, base_arr_layer, arr_layer_cnt, flags));
-			static_assert(std::constructible_from<Resource<Backend>, Ret>,
-				"Resource<Backend> must be constructible from view returned by CreateTextureView()");
+			static_assert(std::constructible_from<View<Backend>, Ret>,
+				"View<Backend> must be constructible from view returned by CreateTextureView()");
 			return Backend::CreateTextureView(m_impl, tex.GetLogicalDevicePassKey().GetImplementation(), base_mip_lvl, mip_lvl_cnt, base_arr_layer, arr_layer_cnt, flags);
 		}
 
-		Sampler<Backend> CreateSampler(SamplerFlags const& flags) {
-			using Ret = decltype(Backend::CreateSampler(m_impl, flags));
+		Sampler<Backend> CreateSampler(SamplerDescriptor const& descriptor) {
+			using Ret = decltype(Backend::CreateSampler(m_impl, descriptor));
 			static_assert(std::constructible_from<Sampler<Backend>, Ret>,
 				"Sampler<Backend> must be constructible from sampler returned by CreateSampler()");
-			return Backend::CreateSampler(m_impl, flags);
+			return Backend::CreateSampler(m_impl, descriptor);
 		}
 
-		Shader<Backend> CreateShader(ShaderLanguage lang, std::string_view src) {
-			using Ret = decltype(Backend::CreateShader(m_impl, lang, src));
-			static_assert(std::constructible_from<Resource<Backend>, Ret>,
-				"Shader<Backend> must be constructible from shader returned by CreateShader()");
-			return Backend::CreateShader(m_impl, lang, src);
+		Pipeline<Backend> CreateGraphicsPipeline(GraphicsPipelineDescriptor const& descriptor) {
+			using Ret = decltype(Backend::CreateGraphicsPipeline(m_impl, descriptor));
+			static_assert(
+				std::constructible_from<Pipeline<Backend>, Ret>,
+				"Pipeline<Backend> must be constructible from pipeline returned by CreateGraphicsPipeline()"
+			);
+			return Backend::CreateGraphicsPipeline(m_impl, descriptor);
 		}
 
-		Shader<Backend> CreateShader(std::span<std::byte const> bytes) {
-			using Ret = decltype(Backend::CreateShader(m_impl, bytes));
-			static_assert(std::constructible_from<Shader<Backend>, Ret>,
-				"Shader<Backend> must be constructible from shader returned by CreateShader()");
-			return Backend::CreateShader(m_impl, bytes);
-		}
-		
-		Shader<Backend> CreateShader(std::span<std::byte const> bytes) {
-			using Ret = decltype(Backend::CreateShader(m_impl, bytes));
-			static_assert(std::constructible_from<Shader<Backend>, Ret>,
-				"Shader<Backend> must be constructible from shader returned by CreateShader()");
-			return Backend::CreateShader(m_impl, bytes);
-		}
-
-		ShaderDataSegment<Backend> CreateShaderDataSegment() {
-			using Ret = decltype(Backend::CreateShaderDataSegment(m_impl));
-			static_assert(std::constructible_from<ShaderDataSegment<Backend>, Ret>,
-				"ShaderDataSegment<Backend> must be constructible from shader data segment returned by CreateShaderDataSegment()");
-			return Backend::CreateShaderDataSegment(m_impl);
-		}
-
-		GPUExecutable<Backend> CreateGPUExecutable() {
-			using Ret = decltype(Backend::CreateGPUExecutable(m_impl));
-			static_assert(std::constructible_from<GPUExecutable<Backend>, Ret>,
-				"GPUExecutable<Backend> must be constructible from GPU executable returned by CreateGPUExecutable()");
-			return Backend::CreateGPUExecutable(m_impl);
-		}
-
-		CommandBuffer<Backend> CreateCommandBuffer(CommandObjectType type) {
-			using Ret = decltype(Backend::CreateCommandBuffer(m_impl, type));
-			static_assert(std::constructible_from<CommandBuffer<Backend>, Ret>,
-				"CommandBuffer<Backend> must be constructible from command buffer returned by CreateCommandBuffer()");
-			return Backend::CreateCommandBuffer(m_impl, type);
-		}
-
-		CommandQueue<Backend> CreateCommandQueue(CommandObjectType type) {
-			using Ret = decltype(Backend::CreateCommandQueue(m_impl, type));
-			static_assert(std::constructible_from<CommandBuffer<Backend>, Ret>,
-				"CommandQueue<Backend> must be constructible from command queue returned by CreateCommandQueue()");
-			return Backend::CreateCommandQueue(m_impl, type);
+		PipelineResourceGroup<Backend> CreatePipelineResourceGroup(
+			Pipeline<Backend> const& pipeline,
+			std::uint32_t space,
+			std::span<PipelineResourceBinding<Backend> const> bindings
+		) {
+			std::vector<NativePipelineResourceBinding<Backend>> native_bindings;
+			native_bindings.reserve(bindings.size());
+			for (auto const& binding : bindings) {
+				auto const& value = binding.value;
+				auto buffer = value.Buffer();
+				auto view = value.BoundView();
+				auto sampler = value.BoundSampler();
+				native_bindings.push_back(
+					{
+						.binding = binding.binding,
+						.array_element = binding.array_element,
+						.buffer = buffer
+							? &buffer->GetLogicalDevicePassKey().GetImplementation()
+							: nullptr,
+						.view = view
+							? &view->GetPassKey().GetImplementation()
+							: nullptr,
+						.sampler = sampler
+							? &sampler->GetPassKey().GetImplementation()
+							: nullptr,
+						.offset = value.Offset(),
+						.size = value.Size()
+					}
+				);
+			}
+			auto impl = Backend::CreatePipelineResourceGroup(
+				m_impl,
+				pipeline.GetPassKey().GetImplementation(),
+				space,
+				native_bindings
+			);
+			return PipelineResourceGroup<Backend>(std::move(impl), space);
 		}
 
 	};

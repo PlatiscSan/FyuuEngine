@@ -2,6 +2,7 @@ module;
 #include <version>
 #if !defined(__cpp_lib_modules)
 #include <vector>
+#include <string_view>
 #endif // !defined(__cpp_lib_modules)
 #if defined(_WIN32)
 #include <dxgi1_3.h>
@@ -15,10 +16,11 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :d3d12_traits;
 import :d3d12_utility;
+import :cache_system;
 
 namespace fyuu_rhi::d3d12 {
 
-	Microsoft::WRL::ComPtr<IDXGIFactory2> Backend::CreateInstance() {
+	Microsoft::WRL::ComPtr<IDXGIFactory2> Backend::CreateInstance(std::string_view app_name, Version const& app_ver, std::string_view engine_name, Version const& engine_ver) {
 		Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
 
 		UINT create_factory_flags =
@@ -56,6 +58,8 @@ namespace fyuu_rhi::d3d12 {
 		dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 #endif // !defined(NDEBUG)
 
+		cache::Initialize(app_name, app_ver, engine_name, engine_ver);
+
 		return factory;
 
 	}
@@ -70,10 +74,6 @@ namespace fyuu_rhi::d3d12 {
 		}
 
 		return adapters;
-	}
-
-	HWND Backend::CreateSurface(Microsoft::WRL::ComPtr<IDXGIFactory2> const& factory, HWND window_handle) noexcept {
-		return window_handle;
 	}
 
 }

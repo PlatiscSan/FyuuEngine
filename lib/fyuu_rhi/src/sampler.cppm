@@ -16,12 +16,40 @@ namespace fyuu_rhi {
 	private:
 		Implementation m_impl;
 	public:
+		template <class SamplerType>
+		class PassKey {
+			static_assert(
+				std::same_as<SamplerType, Sampler> || std::same_as<SamplerType, Sampler const>,
+				"SamplerType must be Sampler or const Sampler"
+			);
+
+			template <class U> friend class LogicalDevice;
+
+			SamplerType* m_sampler;
+
+			template <class Self>
+			decltype(auto) GetImplementation(this Self&& self) noexcept {
+				return self.m_sampler->m_impl;
+			}
+
+		public:
+			explicit PassKey(SamplerType* sampler) noexcept
+				: m_sampler(sampler) {
+
+			}
+		};
+
 		template <std::convertible_to<Implementation> I>
 		Sampler(I&& impl)
 			: m_impl(std::forward<I>(impl)) {
 
 		}
 
+		template <class Self>
+		auto GetPassKey(this Self&& self) noexcept {
+			using SamplerType = std::remove_reference_t<Self>;
+			return PassKey<SamplerType>{ &self };
+		}
 	};
 
 }
