@@ -4,8 +4,10 @@ module;
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <utility>
+#include <variant>
 #include <vector>
 #endif // !defined(__cpp_lib_modules)
 
@@ -67,26 +69,31 @@ namespace fyuu_rhi {
 
 	export template <class Backend> class PipelineBindingValue {
 	private:
-		Resource<Backend> const* m_buffer = nullptr;
-		View<Backend> const* m_view = nullptr;
-		Sampler<Backend> const* m_sampler = nullptr;
-		std::size_t m_offset = 0;
-		std::size_t m_size = PipelineWholeBuffer;
+		struct BufferBinding {
+			std::reference_wrapper<Resource<Backend> const> buffer;
+			std::size_t offset = 0;
+			std::size_t size = PipelineWholeBuffer;
+		};
 
-		template <class U> friend class LogicalDevice;
+		struct ViewBinding {
+			std::reference_wrapper<View<Backend> const> view;
+		};
 
-		PipelineBindingValue(
-			Resource<Backend> const* buffer,
-			View<Backend> const* view,
-			Sampler<Backend> const* sampler,
-			std::size_t offset,
-			std::size_t size
-		) noexcept
-			: m_buffer(buffer),
-			m_view(view),
-			m_sampler(sampler),
-			m_offset(offset),
-			m_size(size) {
+		struct SamplerBinding {
+			std::reference_wrapper<Sampler<Backend> const> sampler;
+		};
+
+		struct CombinedBinding {
+			std::reference_wrapper<View<Backend> const> view;
+			std::reference_wrapper<Sampler<Backend> const> sampler;
+		};
+
+		using Value = std::variant<BufferBinding, ViewBinding, SamplerBinding, CombinedBinding>;
+		Value m_value;
+
+		template <class T>
+		explicit PipelineBindingValue(T&& value) noexcept
+			: m_value(std::forward<T>(value)) {
 
 		}
 
@@ -96,42 +103,57 @@ namespace fyuu_rhi {
 			std::size_t offset = 0,
 			std::size_t size = PipelineWholeBuffer
 		) noexcept {
-			return { &buffer, nullptr, nullptr, offset, size };
+			return PipelineBindingValue(BufferBinding{ buffer, offset, size });
 		}
 
 		static PipelineBindingValue FromView(View<Backend> const& view) noexcept {
-			return { nullptr, &view, nullptr, 0, PipelineWholeBuffer };
+			return PipelineBindingValue(ViewBinding{ view });
 		}
 
 		static PipelineBindingValue FromSampler(Sampler<Backend> const& sampler) noexcept {
-			return { nullptr, nullptr, &sampler, 0, PipelineWholeBuffer };
+			return PipelineBindingValue(SamplerBinding{ sampler });
 		}
 
 		static PipelineBindingValue FromCombined(
 			View<Backend> const& view,
 			Sampler<Backend> const& sampler
 		) noexcept {
-			return { nullptr, &view, &sampler, 0, PipelineWholeBuffer };
+			return PipelineBindingValue(CombinedBinding{ view, sampler });
 		}
 
 		Resource<Backend> const* Buffer() const noexcept {
-			return m_buffer;
+			auto binding = std::get_if<BufferBinding>(&m_value);
+			return binding ? &binding->buffer.get() : nullptr;
 		}
 
 		View<Backend> const* BoundView() const noexcept {
-			return m_view;
+			if (auto binding = std::get_if<ViewBinding>(&m_value)) {
+				return &binding->view.get();
+			}
+			if (auto binding = std::get_if<CombinedBinding>(&m_value)) {
+				return &binding->view.get();
+			}
+			return nullptr;
 		}
 
 		Sampler<Backend> const* BoundSampler() const noexcept {
-			return m_sampler;
+			if (auto binding = std::get_if<SamplerBinding>(&m_value)) {
+				return &binding->sampler.get();
+			}
+			if (auto binding = std::get_if<CombinedBinding>(&m_value)) {
+				return &binding->sampler.get();
+			}
+			return nullptr;
 		}
 
 		std::size_t Offset() const noexcept {
-			return m_offset;
+			auto binding = std::get_if<BufferBinding>(&m_value);
+			return binding ? binding->offset : 0;
 		}
 
 		std::size_t Size() const noexcept {
-			return m_size;
+			auto binding = std::get_if<BufferBinding>(&m_value);
+			return binding ? binding->size : PipelineWholeBuffer;
 		}
 	};
 

@@ -143,9 +143,13 @@ namespace fyuu_rhi::opengl {
 		};
 
 		struct GLBufferView {
+			struct Range {
+				std::size_t offset;
+				std::size_t size;
+			};
+
 			GLuint impl;
-			std::optional<std::size_t> range; // fallback for no GLAD_GL_ARB_texture_buffer_range
-			std::optional<std::size_t> offset; // fallback for no GLAD_GL_ARB_texture_buffer_range
+			std::optional<Range> range; // fallback for no GLAD_GL_ARB_texture_buffer_range
 			~GLBufferView() noexcept {
 				glDeleteTextures(1u, &impl);
 			}

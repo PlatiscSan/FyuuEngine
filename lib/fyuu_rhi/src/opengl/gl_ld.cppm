@@ -1430,8 +1430,9 @@ namespace fyuu_rhi::opengl {
 			std::allocate_shared<Backend::GLBufferView>(
 				pmr_alloc,
 				view,
-				GLAD_GL_ARB_texture_buffer_range ? std::nullopt : std::optional(offset),
-				GLAD_GL_ARB_texture_buffer_range ? std::nullopt : std::optional(range)
+				GLAD_GL_ARB_texture_buffer_range
+					? std::nullopt
+					: std::optional(Backend::GLBufferView::Range{ offset, range })
 			)
 		};
 

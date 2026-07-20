@@ -93,21 +93,35 @@ namespace fyuu_rhi {
 				auto buffer = value.Buffer();
 				auto view = value.BoundView();
 				auto sampler = value.BoundSampler();
+				NativePipelineBindingValue<Backend> native_value;
+				if (buffer) {
+					native_value = NativePipelineBufferBinding<Backend>{
+						.buffer = buffer->GetLogicalDevicePassKey().GetImplementation(),
+						.offset = value.Offset(),
+						.size = value.Size()
+					};
+				}
+				else if (view && sampler) {
+					native_value = NativePipelineCombinedBinding<Backend>{
+						.view = view->GetPassKey().GetImplementation(),
+						.sampler = sampler->GetPassKey().GetImplementation()
+					};
+				}
+				else if (view) {
+					native_value = NativePipelineViewBinding<Backend>{
+						.view = view->GetPassKey().GetImplementation()
+					};
+				}
+				else if (sampler) {
+					native_value = NativePipelineSamplerBinding<Backend>{
+						.sampler = sampler->GetPassKey().GetImplementation()
+					};
+				}
 				native_bindings.push_back(
 					{
 						.binding = binding.binding,
 						.array_element = binding.array_element,
-						.buffer = buffer
-							? &buffer->GetLogicalDevicePassKey().GetImplementation()
-							: nullptr,
-						.view = view
-							? &view->GetPassKey().GetImplementation()
-							: nullptr,
-						.sampler = sampler
-							? &sampler->GetPassKey().GetImplementation()
-							: nullptr,
-						.offset = value.Offset(),
-						.size = value.Size()
+						.value = std::move(native_value)
 					}
 				);
 			}

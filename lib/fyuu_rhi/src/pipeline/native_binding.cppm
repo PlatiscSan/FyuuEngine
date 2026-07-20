@@ -5,10 +5,10 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <format>
-#include <optional>
 #include <ranges>
 #include <span>
 #include <stdexcept>
+#include <variant>
 #include <vector>
 #endif // !defined(__cpp_lib_modules)
 
@@ -23,14 +23,42 @@ import :slang_pipeline_interface;
 namespace fyuu_rhi {
 
 	template <class Backend>
+	struct NativePipelineBufferBinding {
+		typename Backend::Resource buffer;
+		std::size_t offset = 0;
+		std::size_t size = PipelineWholeBuffer;
+	};
+
+	template <class Backend>
+	struct NativePipelineViewBinding {
+		typename Backend::View view;
+	};
+
+	template <class Backend>
+	struct NativePipelineSamplerBinding {
+		typename Backend::Sampler sampler;
+	};
+
+	template <class Backend>
+	struct NativePipelineCombinedBinding {
+		typename Backend::View view;
+		typename Backend::Sampler sampler;
+	};
+
+	template <class Backend>
+	using NativePipelineBindingValue = std::variant<
+		std::monostate,
+		NativePipelineBufferBinding<Backend>,
+		NativePipelineViewBinding<Backend>,
+		NativePipelineSamplerBinding<Backend>,
+		NativePipelineCombinedBinding<Backend>
+	>;
+
+	template <class Backend>
 	struct NativePipelineResourceBinding {
 		std::uint32_t binding = 0;
 		std::uint32_t array_element = 0;
-		typename Backend::Resource const* buffer = nullptr;
-		typename Backend::View const* view = nullptr;
-		typename Backend::Sampler const* sampler = nullptr;
-		std::size_t offset = 0;
-		std::size_t size = PipelineWholeBuffer;
+		NativePipelineBindingValue<Backend> value;
 	};
 
 	struct PipelineBindingMetadata {
@@ -63,11 +91,7 @@ namespace fyuu_rhi {
 		struct Binding {
 			std::uint32_t binding = 0;
 			std::uint32_t array_element = 0;
-			std::optional<typename Backend::Resource> buffer;
-			std::optional<typename Backend::View> view;
-			std::optional<typename Backend::Sampler> sampler;
-			std::size_t offset = 0;
-			std::size_t size = PipelineWholeBuffer;
+			NativePipelineBindingValue<Backend> value;
 		};
 
 		std::vector<Binding> bindings;
@@ -127,27 +151,29 @@ namespace fyuu_rhi {
 			bool expects_view =
 				reflected->flags.Test(ResourceFlagBits::TextureBinding) ||
 				reflected->flags.Test(ResourceFlagBits::StorageBinding);
-			if (
-				(expects_buffer != (binding.buffer != nullptr)) ||
-				(expects_view != (binding.view != nullptr)) ||
-				(expects_sampler != (binding.sampler != nullptr))
-			) {
+			bool matches = false;
+			if (expects_buffer && !expects_view && !expects_sampler) {
+				matches = std::holds_alternative<NativePipelineBufferBinding<Backend>>(binding.value);
+			}
+			else if (!expects_buffer && expects_view && !expects_sampler) {
+				matches = std::holds_alternative<NativePipelineViewBinding<Backend>>(binding.value);
+			}
+			else if (!expects_buffer && !expects_view && expects_sampler) {
+				matches = std::holds_alternative<NativePipelineSamplerBinding<Backend>>(binding.value);
+			}
+			else if (!expects_buffer && expects_view && expects_sampler) {
+				matches = std::holds_alternative<NativePipelineCombinedBinding<Backend>>(binding.value);
+			}
+			if (!matches) {
 				throw std::invalid_argument(
 					std::format("Resources do not match pipeline binding {}", binding.binding)
 				);
-			}
-			if (!expects_buffer && (binding.offset != 0 || binding.size != PipelineWholeBuffer)) {
-				throw std::invalid_argument("Only buffer bindings can specify an offset or size");
 			}
 			result.bindings.push_back(
 				{
 					.binding = binding.binding,
 					.array_element = binding.array_element,
-					.buffer = binding.buffer ? std::optional(*binding.buffer) : std::nullopt,
-					.view = binding.view ? std::optional(*binding.view) : std::nullopt,
-					.sampler = binding.sampler ? std::optional(*binding.sampler) : std::nullopt,
-					.offset = binding.offset,
-					.size = binding.size
+					.value = binding.value
 				}
 			);
 		}
