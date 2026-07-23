@@ -17,6 +17,8 @@ import :resource;
 import :view;
 import :sampler_types;
 import :sampler;
+import :scheduler_types;
+import :scheduler;
 import :pipeline_types;
 import :pipeline;
 import :native_pipeline_binding;
@@ -72,48 +74,75 @@ namespace fyuu_rhi {
 			return Backend::CreateSampler(m_impl, descriptor);
 		}
 
-		Pipeline<Backend> CreateGraphicsPipeline(GraphicsPipelineDescriptor const& descriptor) {
+		template <class... Args>
+		execution::Scheduler<Backend> CreateScheduler(
+			execution::SchedulerDescriptor const& descriptor,
+			Args&&... args
+		) {
+			using Ret = decltype(
+				Backend::CreateScheduler(
+					m_impl,
+					descriptor,
+					std::forward<Args>(args)...
+				)
+			);
+			static_assert(
+				std::constructible_from<execution::Scheduler<Backend>, Ret>,
+				"Scheduler<Backend> must be constructible from scheduler returned by CreateScheduler()"
+			);
+			return execution::Scheduler<Backend>(
+				Backend::CreateScheduler(
+					m_impl,
+					descriptor,
+					std::forward<Args>(args)...
+				)
+			);
+		}
+
+		pipeline::Pipeline<Backend> CreateGraphicsPipeline(
+			pipeline::GraphicsPipelineDescriptor const& descriptor
+		) {
 			using Ret = decltype(Backend::CreateGraphicsPipeline(m_impl, descriptor));
 			static_assert(
-				std::constructible_from<Pipeline<Backend>, Ret>,
+				std::constructible_from<pipeline::Pipeline<Backend>, Ret>,
 				"Pipeline<Backend> must be constructible from pipeline returned by CreateGraphicsPipeline()"
 			);
 			return Backend::CreateGraphicsPipeline(m_impl, descriptor);
 		}
 
-		PipelineResourceGroup<Backend> CreatePipelineResourceGroup(
-			Pipeline<Backend> const& pipeline,
+		pipeline::PipelineResourceGroup<Backend> CreatePipelineResourceGroup(
+			pipeline::Pipeline<Backend> const& pipeline_obj,
 			std::uint32_t space,
-			std::span<PipelineResourceBinding<Backend> const> bindings
+			std::span<pipeline::PipelineResourceBinding<Backend> const> bindings
 		) {
-			std::vector<NativePipelineResourceBinding<Backend>> native_bindings;
+			std::vector<pipeline::NativePipelineResourceBinding<Backend>> native_bindings;
 			native_bindings.reserve(bindings.size());
 			for (auto const& binding : bindings) {
 				auto const& value = binding.value;
 				auto buffer = value.Buffer();
 				auto view = value.BoundView();
 				auto sampler = value.BoundSampler();
-				NativePipelineBindingValue<Backend> native_value;
+				pipeline::NativePipelineBindingValue<Backend> native_value;
 				if (buffer) {
-					native_value = NativePipelineBufferBinding<Backend>{
+					native_value = pipeline::NativePipelineBufferBinding<Backend>{
 						.buffer = buffer->GetLogicalDevicePassKey().GetImplementation(),
 						.offset = value.Offset(),
 						.size = value.Size()
 					};
 				}
 				else if (view && sampler) {
-					native_value = NativePipelineCombinedBinding<Backend>{
+					native_value = pipeline::NativePipelineCombinedBinding<Backend>{
 						.view = view->GetPassKey().GetImplementation(),
 						.sampler = sampler->GetPassKey().GetImplementation()
 					};
 				}
 				else if (view) {
-					native_value = NativePipelineViewBinding<Backend>{
+					native_value = pipeline::NativePipelineViewBinding<Backend>{
 						.view = view->GetPassKey().GetImplementation()
 					};
 				}
 				else if (sampler) {
-					native_value = NativePipelineSamplerBinding<Backend>{
+					native_value = pipeline::NativePipelineSamplerBinding<Backend>{
 						.sampler = sampler->GetPassKey().GetImplementation()
 					};
 				}
@@ -127,11 +156,11 @@ namespace fyuu_rhi {
 			}
 			auto impl = Backend::CreatePipelineResourceGroup(
 				m_impl,
-				pipeline.GetPassKey().GetImplementation(),
+				pipeline_obj.GetPassKey().GetImplementation(),
 				space,
 				native_bindings
 			);
-			return PipelineResourceGroup<Backend>(std::move(impl), space);
+			return pipeline::PipelineResourceGroup<Backend>(std::move(impl), space);
 		}
 
 	};

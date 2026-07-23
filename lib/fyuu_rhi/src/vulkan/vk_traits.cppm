@@ -60,10 +60,14 @@ import :core_types;
 import :vulkan_queue_allocator;
 import :resource_types;
 import :sampler_types;
+import :scheduler_types;
 import :pipeline_types;
 import :native_pipeline_binding;
 
 namespace fyuu_rhi::vulkan {
+
+	using namespace fyuu_rhi::pipeline;
+	using namespace fyuu_rhi::execution;
 
 	export struct Backend {
 
@@ -98,6 +102,14 @@ namespace fyuu_rhi::vulkan {
 			std::shared_ptr<vk::detail::DispatchLoaderDynamic> dispatcher;
 			std::shared_ptr<VMAAllocator> mem_alloc;
 		};
+
+		struct VulkanScheduler {
+			std::shared_ptr<ManagedQueue> allocation;
+			vk::Queue queue;
+			SchedulerFlags flags;
+		};
+
+		using Scheduler = std::shared_ptr<VulkanScheduler>;
 
 		struct Resource {
 			struct Buffer {
@@ -174,6 +186,8 @@ namespace fyuu_rhi::vulkan {
 		static PhysicalDeviceInfo GetPhysicalDeviceInfo(PhysicalDevice const& phys_dev);
 
 		static LogicalDevice CreateLogicalDevice(PhysicalDevice const& phys_dev);
+
+		static Scheduler CreateScheduler(LogicalDevice& ld, SchedulerDescriptor const& descriptor);
 
 		static Resource CreateBuffer(LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags);
 

@@ -62,6 +62,7 @@ namespace fs = std::filesystem;
 namespace {
 
 	using namespace fyuu_rhi;
+	using namespace fyuu_rhi::pipeline;
 	using namespace fyuu_rhi::d3d12;
 
 	std::pmr::synchronized_pool_resource s_res_pool{};
@@ -1056,6 +1057,8 @@ namespace {
 }
 
 namespace fyuu_rhi::d3d12 {
+
+	using namespace fyuu_rhi::pipeline;
 
 	Backend::Resource Backend::CreateBuffer(Backend::LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 		D3D12MA::ALLOCATION_DESC alloc_desc{

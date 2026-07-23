@@ -16,7 +16,7 @@ import std;
 #endif // defined(__cpp_lib_modules)
 import :resource_types;
 
-namespace fyuu_rhi {
+namespace fyuu_rhi::pipeline {
 
 	// Pipeline stages are part of a pipeline program description. They do not
 	// represent independently creatable RHI objects.

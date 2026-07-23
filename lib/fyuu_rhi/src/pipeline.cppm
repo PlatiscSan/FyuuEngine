@@ -20,7 +20,7 @@ import :resource;
 import :view;
 import :sampler;
 
-namespace fyuu_rhi {
+namespace fyuu_rhi::pipeline {
 
 	export template <class Backend> class Pipeline {
 	public:

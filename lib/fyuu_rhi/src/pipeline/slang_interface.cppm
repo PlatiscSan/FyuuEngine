@@ -13,7 +13,7 @@ import std;
 import :pipeline_types;
 import :resource_types;
 
-namespace fyuu_rhi {
+namespace fyuu_rhi::pipeline {
 
 	// Normalized pipeline reflection shared by all backends. This partition is
 	// intentionally not exported: resource bindings remain a pipeline detail.

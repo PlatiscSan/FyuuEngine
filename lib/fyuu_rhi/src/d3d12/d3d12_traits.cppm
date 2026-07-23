@@ -25,7 +25,9 @@ module;
 #include <version>
 #if !defined(__cpp_lib_modules)
 #include <cstddef>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <variant>
 #include <string_view>
@@ -49,10 +51,14 @@ import :d3d12_utility;
 import :d3d12_descriptor_allocator;
 import :d3d12_device_removal_tracker;
 import :sampler_types;
+import :scheduler_types;
 import :pipeline_types;
 import :native_pipeline_binding;
 
 namespace fyuu_rhi::d3d12 {
+
+	using namespace fyuu_rhi::pipeline;
+	using namespace fyuu_rhi::execution;
 
 	export struct Backend {
 
@@ -72,6 +78,16 @@ namespace fyuu_rhi::d3d12 {
 			Microsoft::WRL::ComPtr<ID3D12CommandSignature> multidraw_indexed;
 			Microsoft::WRL::ComPtr<ID3D12CommandSignature> dispatch_indirect;
 		};
+
+		struct D3D12Scheduler {
+			Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+			Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+			SchedulerFlags flags;
+			std::atomic<std::uint64_t> next_fence_value = 1u;
+			std::mutex submission_mutex;
+		};
+
+		using Scheduler = std::shared_ptr<D3D12Scheduler>;
 
 		struct Resource {
 			struct Impl {
@@ -104,6 +120,8 @@ namespace fyuu_rhi::d3d12 {
 		static PhysicalDeviceInfo GetPhysicalDeviceInfo(Microsoft::WRL::ComPtr<IDXGIAdapter1> const& adapter);
 
 		static LogicalDevice CreateLogicalDevice(Microsoft::WRL::ComPtr<IDXGIAdapter1> const& adapter);
+
+		static Scheduler CreateScheduler(LogicalDevice const& ld, SchedulerDescriptor const& descriptor);
 
 		static Resource CreateBuffer(LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags);
 

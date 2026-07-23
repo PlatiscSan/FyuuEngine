@@ -62,6 +62,7 @@ namespace fs = std::filesystem;
 namespace {
 
 	using namespace fyuu_rhi;
+	using namespace fyuu_rhi::pipeline;
 	using namespace fyuu_rhi::vulkan;
 
 	std::pmr::synchronized_pool_resource s_pool{};
@@ -769,6 +770,8 @@ namespace {
 }
 
 namespace fyuu_rhi::vulkan {
+
+	using namespace fyuu_rhi::pipeline;
 
 	Backend::Resource Backend::CreateBuffer(LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 		

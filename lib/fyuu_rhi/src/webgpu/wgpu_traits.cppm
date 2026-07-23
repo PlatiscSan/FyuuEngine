@@ -19,6 +19,7 @@ module;
 #include <version>
 #if !defined(__cpp_lib_modules)
 #include <string>
+#include <memory>
 #include <vector>
 #include <variant>
 #include <format>
@@ -43,15 +44,26 @@ import std;
 import :core_types;
 import :resource_types;
 import :sampler_types;
+import :scheduler_types;
 import :pipeline_types;
 import :native_pipeline_binding;
 
 namespace fyuu_rhi::webgpu {
+	using namespace fyuu_rhi::pipeline;
+	using namespace fyuu_rhi::execution;
+
 	struct Backend {
 		using Instance = wgpu::Instance;
 		using PhysicalDevice = wgpu::Adapter;
 		using Surface = wgpu::Surface;
 		using LogicalDevice = wgpu::Device;
+
+		struct WebGPUScheduler {
+			wgpu::Queue queue;
+			SchedulerFlags flags;
+		};
+
+		using Scheduler = std::shared_ptr<WebGPUScheduler>;
 
 		struct Resource {
 			std::variant<std::monostate, wgpu::Buffer, wgpu::Texture> impl;
@@ -96,6 +108,8 @@ namespace fyuu_rhi::webgpu {
 		static PhysicalDeviceInfo GetPhysicalDeviceInfo(wgpu::Adapter const& phys_dev);
 
 		static wgpu::Device CreateLogicalDevice(wgpu::Adapter const& adapter);
+
+		static Scheduler CreateScheduler(LogicalDevice const& ld, SchedulerDescriptor const& descriptor);
 
 		static Resource CreateBuffer(wgpu::Device const& ld, std::size_t size_in_bytes, ResourceFlags const& flags);
 

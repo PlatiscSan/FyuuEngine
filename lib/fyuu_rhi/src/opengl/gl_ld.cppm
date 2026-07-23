@@ -74,6 +74,7 @@ namespace fs = std::filesystem;
 namespace {
 
 	using namespace fyuu_rhi;
+	using namespace fyuu_rhi::pipeline;
 	using namespace fyuu_rhi::opengl;
 
 	std::pmr::synchronized_pool_resource s_obj_pool{};
@@ -1114,6 +1115,8 @@ namespace {
 }
 
 namespace fyuu_rhi::opengl {
+
+	using namespace fyuu_rhi::pipeline;
 
 	std::shared_ptr<Backend::GLResource> Backend::CreateBuffer(Backend::LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 

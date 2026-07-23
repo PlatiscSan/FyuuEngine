@@ -72,11 +72,15 @@ import std;
 import :core_types;
 import :resource_types;
 import :sampler_types;
+import :scheduler_types;
 import :pipeline_types;
 import :native_pipeline_binding;
 
 namespace fyuu_rhi::opengl {
 	
+	using namespace fyuu_rhi::pipeline;
+	using namespace fyuu_rhi::execution;
+
 	export struct Backend {
 
 		struct Instance {
@@ -112,6 +116,13 @@ namespace fyuu_rhi::opengl {
 
 		using PhysicalDevice = Instance const*;
 		using LogicalDevice = Instance const*;
+
+		struct GLScheduler {
+			LogicalDevice logical_device = nullptr;
+			SchedulerFlags flags;
+		};
+
+		using Scheduler = std::shared_ptr<GLScheduler>;
 
 		struct GLResource {
 			GLuint impl;
@@ -210,6 +221,8 @@ namespace fyuu_rhi::opengl {
 		static PhysicalDeviceInfo GetPhysicalDeviceInfo(PhysicalDevice const& phys_dev);
 
 		static LogicalDevice CreateLogicalDevice(PhysicalDevice const& phys_dev) noexcept;
+
+		static Scheduler CreateScheduler(LogicalDevice const& ld, SchedulerDescriptor const& descriptor);
 
 		static std::shared_ptr<GLResource> CreateBuffer(LogicalDevice const& ld, std::size_t size_in_bytes, ResourceFlags const& flags);
 

@@ -20,7 +20,7 @@ import :pipeline_types;
 import :resource_types;
 import :slang_pipeline_interface;
 
-namespace fyuu_rhi {
+namespace fyuu_rhi::pipeline {
 
 	template <class Backend>
 	struct NativePipelineBufferBinding {

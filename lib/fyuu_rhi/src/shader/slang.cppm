@@ -42,6 +42,8 @@ namespace fs = std::filesystem;
 
 namespace fyuu_rhi::shader {
 
+	using namespace fyuu_rhi::pipeline;
+
 	Slang::ComPtr<slang::IGlobalSession> SlangGlobalSession() {
 		static std::once_flag once;
 		static Slang::ComPtr<slang::IGlobalSession> session;

@@ -26,6 +26,8 @@ import :webgpu_traits;
 import :resource;
 import :view;
 import :sampler;
+export import :scheduler_types;
+export import :scheduler;
 export import :pipeline_types;
 export import :pipeline;
 import :logical_device;
@@ -52,8 +54,6 @@ namespace fyuu_rhi {
 	export using D3D12Resource = Resource<d3d12::Backend>;
 	export using D3D12View = View<d3d12::Backend>;
 	export using D3D12Sampler = Sampler<d3d12::Backend>;
-	export using D3D12Pipeline = Pipeline<d3d12::Backend>;
-	export using D3D12PipelineResourceGroup = PipelineResourceGroup<d3d12::Backend>;
 #endif // defined(_WIN32)
 #if defined(__APPLE__)
 	export using MetalInstance = Instance<metal::Backend>;
@@ -68,8 +68,6 @@ namespace fyuu_rhi {
 	export using VulkanResource = Resource<vulkan::Backend>;
 	export using VulkanView = View<vulkan::Backend>;
 	export using VulkanSampler = Sampler<vulkan::Backend>;
-	export using VulkanPipeline = Pipeline<vulkan::Backend>;
-	export using VulkanPipelineResourceGroup = PipelineResourceGroup<vulkan::Backend>;
 
 	export using OpenGLInstance = Instance<opengl::Backend>;
 	export using OpenGLPhysicalDevice = PhysicalDevice<opengl::Backend>;
@@ -77,8 +75,6 @@ namespace fyuu_rhi {
 	export using OpenGLResource = Resource<opengl::Backend>;
 	export using OpenGLView = View<opengl::Backend>;
 	export using OpenGLSampler = Sampler<opengl::Backend>;
-	export using OpenGLPipeline = Pipeline<opengl::Backend>;
-	export using OpenGLPipelineResourceGroup = PipelineResourceGroup<opengl::Backend>;
 #endif // defined(__APPLE__)
 	export using WebGPUInstance = Instance<webgpu::Backend>;
 	export using WebGPUPhysicalDevice = PhysicalDevice<webgpu::Backend>;
@@ -86,8 +82,6 @@ namespace fyuu_rhi {
 	export using WebGPUResource = Resource<webgpu::Backend>;
 	export using WebGPUView = View<webgpu::Backend>;
 	export using WebGPUSampler = Sampler<webgpu::Backend>;
-	export using WebGPUPipeline = Pipeline<webgpu::Backend>;
-	export using WebGPUPipelineResourceGroup = PipelineResourceGroup<webgpu::Backend>;
 
 	export template <class T> T BestPerformance(std::span<T const> phys_devs) {
 
@@ -131,3 +125,34 @@ namespace fyuu_rhi {
 	}
 
 } // namespace fyuu_rhi
+
+namespace fyuu_rhi::pipeline {
+
+#if defined(_WIN32)
+	export using D3D12Pipeline = Pipeline<d3d12::Backend>;
+	export using D3D12PipelineResourceGroup = PipelineResourceGroup<d3d12::Backend>;
+#endif // defined(_WIN32)
+#if !defined(__APPLE__)
+	export using VulkanPipeline = Pipeline<vulkan::Backend>;
+	export using VulkanPipelineResourceGroup = PipelineResourceGroup<vulkan::Backend>;
+
+	export using OpenGLPipeline = Pipeline<opengl::Backend>;
+	export using OpenGLPipelineResourceGroup = PipelineResourceGroup<opengl::Backend>;
+#endif // defined(__APPLE__)
+	export using WebGPUPipeline = Pipeline<webgpu::Backend>;
+	export using WebGPUPipelineResourceGroup = PipelineResourceGroup<webgpu::Backend>;
+
+}
+
+namespace fyuu_rhi::execution {
+
+#if defined(_WIN32)
+	export using D3D12Scheduler = Scheduler<d3d12::Backend>;
+#endif // defined(_WIN32)
+#if !defined(__APPLE__)
+	export using VulkanScheduler = Scheduler<vulkan::Backend>;
+	export using OpenGLScheduler = Scheduler<opengl::Backend>;
+#endif // defined(__APPLE__)
+	export using WebGPUScheduler = Scheduler<webgpu::Backend>;
+
+}

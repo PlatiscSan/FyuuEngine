@@ -23,6 +23,7 @@ import :native_pipeline_binding;
 namespace {
 
 	using namespace fyuu_rhi;
+	using namespace fyuu_rhi::pipeline;
 
 	wgpu::BufferUsage ExtractBufferUsageFlags(ResourceFlags const& flags) {
 
@@ -406,6 +407,8 @@ namespace {
 }
 
 namespace fyuu_rhi::webgpu {
+	using namespace fyuu_rhi::pipeline;
+
 	Backend::Resource Backend::CreateBuffer(wgpu::Device const& ld, std::size_t size_in_bytes, ResourceFlags const& flags) {
 		wgpu::BufferDescriptor desc{
 			nullptr,
