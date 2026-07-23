@@ -105,7 +105,7 @@ namespace fyuu_rhi::vulkan {
 
 		struct VulkanScheduler {
 			std::shared_ptr<ManagedQueue> allocation;
-			vk::Queue queue;
+			vk::SharedQueue queue;
 			SchedulerFlags flags;
 		};
 

@@ -69,7 +69,7 @@ namespace fyuu_rhi::execution {
 		}
 	};
 
-	template <class Backend> class ScheduleSender {
+	template <class Backend> class Sender {
 	private:
 		Scheduler<Backend> m_scheduler;
 
@@ -78,7 +78,7 @@ namespace fyuu_rhi::execution {
 		using sender_concept = std::execution::sender_t;
 #endif // defined(__cpp_lib_senders) && __cpp_lib_senders >= 202406L
 
-		explicit ScheduleSender(Scheduler<Backend> scheduler) noexcept
+		explicit Sender(Scheduler<Backend> scheduler) noexcept
 			: m_scheduler(std::move(scheduler)) {
 
 		}
@@ -112,13 +112,12 @@ namespace fyuu_rhi::execution {
 #if defined(__cpp_lib_senders) && __cpp_lib_senders >= 202406L
 		using scheduler_concept = std::execution::scheduler_t;
 #endif // defined(__cpp_lib_senders) && __cpp_lib_senders >= 202406L
-
 	private:
 		Implementation m_impl;
 
 	public:
-		explicit Scheduler(Implementation impl) noexcept
-			: m_impl(std::move(impl)) {
+		explicit Scheduler(Implementation const& impl) noexcept
+			: m_impl(impl) {
 			static_assert(std::is_nothrow_move_constructible_v<Implementation>);
 		}
 
@@ -129,8 +128,8 @@ namespace fyuu_rhi::execution {
 		~Scheduler() noexcept = default;
 
 		[[nodiscard]]
-		ScheduleSender<Backend> schedule() const noexcept {
-			return ScheduleSender<Backend>(*this);
+		Sender<Backend> schedule() const noexcept {
+			return Sender<Backend>(*this);
 		}
 
 		friend bool operator==(Scheduler const&, Scheduler const&) noexcept = default;

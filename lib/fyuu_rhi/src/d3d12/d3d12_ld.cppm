@@ -1662,5 +1662,9 @@ namespace fyuu_rhi::d3d12 {
 		return MakePipelineResourceGroup<Backend>(pipeline.bindings, space, bindings);
 	}
 
+	Backend::Scheduler Backend::CreateScheduler(LogicalDevice const& ld, SchedulerDescriptor const& descriptor) {
+
+	}
+
 }
 #endif // defined(_WIN32)

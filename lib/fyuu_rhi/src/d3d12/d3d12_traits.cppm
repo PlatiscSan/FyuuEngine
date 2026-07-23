@@ -79,24 +79,23 @@ namespace fyuu_rhi::d3d12 {
 			Microsoft::WRL::ComPtr<ID3D12CommandSignature> dispatch_indirect;
 		};
 
-		struct D3D12Scheduler {
-			Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
-			Microsoft::WRL::ComPtr<ID3D12Fence> fence;
-			SchedulerFlags flags;
-			std::atomic<std::uint64_t> next_fence_value = 1u;
-			std::mutex submission_mutex;
+		struct Scheduler {
+			struct Implementation {
+				Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+				Microsoft::WRL::ComPtr<ID3D12Fence> fence;
+				std::atomic_uint64_t next_fence_value;
+			};
+			std::shared_ptr<Implementation> impl;
 		};
 
-		using Scheduler = std::shared_ptr<D3D12Scheduler>;
-
 		struct Resource {
-			struct Impl {
+			struct Implementation {
 				Microsoft::WRL::ComPtr<D3D12MA::Allocation> alloc;
 				D3D12_RESOURCE_STATES last_state;
 				D3D12_RESOURCE_STATES curr_state;
 			};
 
-			std::shared_ptr<Impl> impl;
+			std::shared_ptr<Implementation> impl;
 
 		};
 
